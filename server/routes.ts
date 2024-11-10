@@ -56,18 +56,31 @@ async function discoverCompetitors(websiteUrl: string) {
       throw new Error(`Webhook request failed (${response.status}): ${response.statusText}. ${errorText}`);
     }
 
-    const responseData = await response.json();
-    console.log('Make.com webhook response data:', responseData);
-
-    if (!Array.isArray(responseData)) {
-      throw new Error('Invalid response format: Expected an array of competitors');
+    // Handle markdown-style JSON response
+    const responseText = await response.text();
+    const jsonStr = responseText.replace(/```json\n|\n```/g, '').trim();
+    let responseData;
+    try {
+      responseData = JSON.parse(jsonStr);
+    } catch (error) {
+      console.error('JSON parsing error:', error);
+      console.error('Response text:', responseText);
+      throw new Error('Failed to parse webhook response');
     }
 
-    return responseData.map((comp: any) => ({
+    // Validate the response structure
+    if (!responseData || typeof responseData !== 'object') {
+      throw new Error('Invalid response format: Expected a JSON object');
+    }
+
+    // Extract competitors from the response
+    const competitors = Array.isArray(responseData) ? responseData : [responseData];
+    return competitors.map(comp => ({
       name: comp.name || 'Unknown Company',
-      website: comp.website || '',
-      reason: comp.reason || `Discovered through analysis of ${websiteUrl}`
+      website: comp.url || comp.website || '',
+      reason: comp.reason || `Competitor in your industry`
     }));
+
   } catch (error) {
     console.error('Make.com webhook detailed error:', error);
     if (error instanceof Error) {
