@@ -1,11 +1,71 @@
 import { Express } from "express";
 import { setupAuth } from "./auth";
 import { db } from "db";
-import { competitors, reports } from "db/schema";
+import { competitors, reports, subscriptions } from "db/schema";
 import { eq } from "drizzle-orm";
+import { createCustomer, createSubscription, cancelSubscription, handleWebhook } from "./stripe";
+import Stripe from "stripe";
 
 export function registerRoutes(app: Express) {
   setupAuth(app);
+
+  // Subscription routes
+  app.post("/api/subscriptions", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+
+    try {
+      const subscription = await createSubscription(req.user.id, req.body.priceId);
+      res.json(subscription);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to create subscription" });
+    }
+  });
+
+  app.delete("/api/subscriptions", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+
+    try {
+      await cancelSubscription(req.user.id);
+      res.json({ message: "Subscription cancelled" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to cancel subscription" });
+    }
+  });
+
+  app.get("/api/subscriptions/status", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+
+    try {
+      const [subscription] = await db
+        .select()
+        .from(subscriptions)
+        .where(eq(subscriptions.userId, req.user.id));
+      res.json(subscription || { status: "none" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch subscription status" });
+    }
+  });
+
+  // Stripe webhook handler
+  app.post("/api/webhooks/stripe", async (req, res) => {
+    const sig = req.headers["stripe-signature"];
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    try {
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+        apiVersion: "2023-10-16"
+      });
+      const event = stripe.webhooks.constructEvent(
+        req.body,
+        sig as string,
+        endpointSecret!
+      );
+      await handleWebhook(event);
+      res.json({ received: true });
+    } catch (err) {
+      res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+  });
 
   // Competitor routes
   app.get("/api/competitors", async (req, res) => {

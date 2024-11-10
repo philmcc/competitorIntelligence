@@ -9,6 +9,7 @@ import { Toaster } from "@/components/ui/toaster";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Reports from "./pages/Reports";
+import Settings from "./pages/Settings";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -18,6 +19,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/auth" component={Auth} />
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/reports" component={Reports} />
+        <Route path="/settings" component={Settings} />
         <Route>404 Page Not Found</Route>
       </Switch>
       <Toaster />
