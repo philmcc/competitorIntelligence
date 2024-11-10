@@ -12,13 +12,15 @@ export default function Auth() {
   const { login, register } = useUser();
   const { toast } = useToast();
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   const handleSubmit = async (action: "login" | "register") => {
-    const result = await (action === "login" ? login : register)({
-      username,
-      password,
-    });
+    const userData = action === "login" 
+      ? { username, password }
+      : { username, password, email };
+
+    const result = await (action === "login" ? login : register)(userData);
 
     if (result.ok) {
       toast({ title: `${action === "login" ? "Login" : "Registration"} successful` });
@@ -53,12 +55,14 @@ export default function Auth() {
                     placeholder="Username"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
+                    required
                   />
                   <Input
                     type="password"
                     placeholder="Password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    required
                   />
                   <Button type="submit" className="w-full">
                     Login
@@ -73,12 +77,22 @@ export default function Auth() {
                     placeholder="Username"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
+                    required
+                  />
+                  <Input
+                    type="email"
+                    placeholder="Email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
                   />
                   <Input
                     type="password"
                     placeholder="Password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={8}
                   />
                   <Button type="submit" className="w-full">
                     Register
