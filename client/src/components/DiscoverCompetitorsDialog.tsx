@@ -4,6 +4,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ import { Card } from "@/components/ui/card";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { AlertCircle } from "lucide-react";
 
 const discoverySchema = z.object({
   websiteUrl: z.string().url("Please enter a valid URL")
@@ -34,6 +36,7 @@ export default function DiscoverCompetitorsDialog() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [discoveredCompetitors, setDiscoveredCompetitors] = useState<DiscoveredCompetitor[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   const form = useForm<DiscoveryForm>({
     resolver: zodResolver(discoverySchema),
@@ -44,6 +47,8 @@ export default function DiscoverCompetitorsDialog() {
 
   const handleDiscover = async (data: DiscoveryForm) => {
     setLoading(true);
+    setError(null);
+    setDiscoveredCompetitors([]);
 
     try {
       const response = await fetch("/api/competitors/discover", {
@@ -54,17 +59,27 @@ export default function DiscoverCompetitorsDialog() {
         }),
       });
 
+      const responseData = await response.json();
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to discover competitors");
+        throw new Error(responseData.message || responseData.error || "Failed to discover competitors");
       }
 
-      const competitors = await response.json();
-      setDiscoveredCompetitors(competitors);
+      if (!Array.isArray(responseData)) {
+        throw new Error("Invalid response format from server");
+      }
+
+      setDiscoveredCompetitors(responseData);
+      
+      if (responseData.length === 0) {
+        setError("No competitors were found for the provided website. Try a different URL or add competitors manually.");
+      }
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
+      setError(errorMessage);
       toast({
         title: "Error discovering competitors",
-        description: (error as Error).message,
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -73,13 +88,22 @@ export default function DiscoverCompetitorsDialog() {
   };
 
   const handleAddCompetitor = async (competitor: DiscoveredCompetitor) => {
-    const result = await addCompetitor(competitor);
-    if (result.ok) {
-      toast({ title: "Competitor added successfully" });
-    } else {
+    try {
+      const result = await addCompetitor(competitor);
+      if (result.ok) {
+        toast({ title: "Competitor added successfully" });
+        // Remove the added competitor from the list
+        setDiscoveredCompetitors(prev => 
+          prev.filter(c => c.website !== competitor.website)
+        );
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to add competitor";
       toast({
         title: "Error adding competitor",
-        description: result.error,
+        description: errorMessage,
         variant: "destructive",
       });
     }
@@ -93,6 +117,9 @@ export default function DiscoverCompetitorsDialog() {
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Discover Competitors</DialogTitle>
+          <DialogDescription>
+            Enter your website URL to discover potential competitors in your industry.
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(handleDiscover)} className="space-y-4">
           <div className="space-y-2">
@@ -102,9 +129,11 @@ export default function DiscoverCompetitorsDialog() {
               {...form.register("websiteUrl")}
               placeholder="https://www.example.com"
               type="url"
+              disabled={loading}
             />
             {form.formState.errors.websiteUrl && (
-              <p className="text-sm text-destructive">
+              <p className="text-sm text-destructive flex items-center gap-1">
+                <AlertCircle className="h-4 w-4" />
                 {form.formState.errors.websiteUrl.message}
               </p>
             )}
@@ -113,6 +142,15 @@ export default function DiscoverCompetitorsDialog() {
             {loading ? "Discovering..." : "Discover"}
           </Button>
         </form>
+
+        {error && (
+          <div className="mt-4 p-4 border border-destructive/50 rounded-lg bg-destructive/10">
+            <p className="text-sm text-destructive flex items-center gap-2">
+              <AlertCircle className="h-4 w-4" />
+              {error}
+            </p>
+          </div>
+        )}
 
         {discoveredCompetitors.length > 0 && (
           <div className="mt-6 space-y-4">

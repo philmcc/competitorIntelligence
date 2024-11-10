@@ -7,37 +7,73 @@ import { createCustomer, createSubscription, cancelSubscription, handleWebhook }
 import Stripe from "stripe";
 import fetch from "node-fetch";
 
+// Helper function to validate webhook URL
+function isValidWebhookUrl(url: string): boolean {
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.protocol === 'https:' && parsedUrl.hostname.includes('make.com');
+  } catch {
+    return false;
+  }
+}
+
 // Helper function to discover competitors based on website URL
 async function discoverCompetitors(websiteUrl: string) {
   try {
     // Make.com webhook for competitor discovery
     const webhookUrl = process.env.MAKE_DISCOVERY_WEBHOOK_URL;
     if (!webhookUrl) {
-      throw new Error("Make.com webhook URL not configured");
+      throw new Error("Make.com webhook URL is not configured in environment variables");
     }
 
-    // Send request to Make.com webhook
+    // Validate webhook URL
+    if (!isValidWebhookUrl(webhookUrl)) {
+      throw new Error("Invalid Make.com webhook URL format");
+    }
+
+    // Send request to Make.com webhook with enhanced headers and body format
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'User-Agent': 'Competitor-Intelligence-System/1.0',
+        'Accept': 'application/json'
       },
-      body: JSON.stringify({ websiteUrl }),
+      body: JSON.stringify({
+        url: websiteUrl,
+        format: "json",
+        include_metadata: true
+      })
     });
 
+    // Log response status and headers for debugging
+    console.log('Make.com webhook response status:', response.status);
+    console.log('Make.com webhook response headers:', Object.fromEntries(response.headers.entries()));
+
     if (!response.ok) {
-      throw new Error(`Webhook request failed: ${response.statusText}`);
+      const errorText = await response.text();
+      console.error('Make.com webhook error response:', errorText);
+      throw new Error(`Webhook request failed (${response.status}): ${response.statusText}. ${errorText}`);
     }
 
-    const competitors = await response.json();
-    return competitors.map((comp: any) => ({
-      name: comp.name,
-      website: comp.website,
-      reason: comp.reason || `Discovered through analysis of ${websiteUrl}`,
+    const responseData = await response.json();
+    console.log('Make.com webhook response data:', responseData);
+
+    if (!Array.isArray(responseData)) {
+      throw new Error('Invalid response format: Expected an array of competitors');
+    }
+
+    return responseData.map((comp: any) => ({
+      name: comp.name || 'Unknown Company',
+      website: comp.website || '',
+      reason: comp.reason || `Discovered through analysis of ${websiteUrl}`
     }));
   } catch (error) {
-    console.error('Make.com webhook error:', error);
-    throw error;
+    console.error('Make.com webhook detailed error:', error);
+    if (error instanceof Error) {
+      throw new Error(`Competitor discovery failed: ${error.message}`);
+    }
+    throw new Error('An unexpected error occurred during competitor discovery');
   }
 }
 
