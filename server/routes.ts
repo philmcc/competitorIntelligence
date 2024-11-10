@@ -5,71 +5,40 @@ import { competitors, reports, subscriptions } from "db/schema";
 import { eq } from "drizzle-orm";
 import { createCustomer, createSubscription, cancelSubscription, handleWebhook } from "./stripe";
 import Stripe from "stripe";
+import fetch from "node-fetch";
 
-// Define valid industries for type safety
-type ValidIndustry = 'Software' | 'Healthcare' | 'Retail';
-
-// Helper function to discover competitors based on industry and keywords
-async function discoverCompetitors(industry: string, keywords: string[]) {
-  // This is a mock implementation that generates more relevant suggestions
-  // based on the provided industry and keywords
-  const suggestions = [];
-  
-  // Industry-based suggestions
-  suggestions.push({
-    name: `${industry} Innovations`,
-    website: `https://www.${industry.toLowerCase().replace(/\s+/g, '')}innovations.com`,
-    reason: `Leading innovator in the ${industry} space`,
-  });
-  
-  suggestions.push({
-    name: `${industry} Global Solutions`,
-    website: `https://www.${industry.toLowerCase().replace(/\s+/g, '')}global.com`,
-    reason: `Global market leader in ${industry}`,
-  });
-
-  // Keyword-based suggestions
-  keywords.forEach((keyword, index) => {
-    if (index < 3) { // Limit to 3 keyword-based suggestions
-      const cleanKeyword = keyword.trim().toLowerCase().replace(/\s+/g, '');
-      suggestions.push({
-        name: `${keyword.trim()} Technologies`,
-        website: `https://www.${cleanKeyword}tech.com`,
-        reason: `Specializes in ${keyword.trim()} within the ${industry} sector`,
-      });
+// Helper function to discover competitors based on website URL
+async function discoverCompetitors(websiteUrl: string) {
+  try {
+    // Make.com webhook for competitor discovery
+    const webhookUrl = process.env.MAKE_DISCOVERY_WEBHOOK_URL;
+    if (!webhookUrl) {
+      throw new Error("Make.com webhook URL not configured");
     }
-  });
 
-  // Add some industry-specific competitors
-  const industrySpecific: Record<ValidIndustry, Array<{ name: string; website: string; reason: string; }>> = {
-    'Software': [
-      {
-        name: 'TechForward Solutions',
-        website: 'https://www.techforward.com',
-        reason: `Emerging player in ${keywords.join(', ')}`,
+    // Send request to Make.com webhook
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
-    ],
-    'Healthcare': [
-      {
-        name: 'HealthTech Innovations',
-        website: 'https://www.healthtechinnovations.com',
-        reason: `Healthcare solutions provider focusing on ${keywords.join(', ')}`,
-      },
-    ],
-    'Retail': [
-      {
-        name: 'RetailNext',
-        website: 'https://www.retailnext.com',
-        reason: `Retail technology provider specializing in ${keywords.join(', ')}`,
-      },
-    ],
-  };
+      body: JSON.stringify({ websiteUrl }),
+    });
 
-  if (industry in industrySpecific) {
-    suggestions.push(...industrySpecific[industry as ValidIndustry]);
+    if (!response.ok) {
+      throw new Error(`Webhook request failed: ${response.statusText}`);
+    }
+
+    const competitors = await response.json();
+    return competitors.map((comp: any) => ({
+      name: comp.name,
+      website: comp.website,
+      reason: comp.reason || `Discovered through analysis of ${websiteUrl}`,
+    }));
+  } catch (error) {
+    console.error('Make.com webhook error:', error);
+    throw error;
   }
-
-  return suggestions;
 }
 
 export function registerRoutes(app: Express) {
@@ -134,23 +103,25 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // Competitor discovery endpoint
+  // Updated competitor discovery endpoint
   app.post("/api/competitors/discover", async (req, res) => {
     if (!req.user) return res.status(401).json({ message: "Unauthorized" });
 
     try {
-      const { industry, keywords } = req.body;
+      const { websiteUrl } = req.body;
       
-      if (!industry || !keywords?.length) {
+      if (!websiteUrl) {
         return res.status(400).json({ 
-          message: "Industry and at least one keyword are required" 
+          message: "Website URL is required" 
         });
       }
 
-      // Validate input
-      if (typeof industry !== 'string' || !Array.isArray(keywords)) {
+      // Validate URL format
+      try {
+        new URL(websiteUrl);
+      } catch (e) {
         return res.status(400).json({ 
-          message: "Invalid input format" 
+          message: "Invalid website URL format" 
         });
       }
 
@@ -160,7 +131,7 @@ export function registerRoutes(app: Express) {
         .from(competitors)
         .where(eq(competitors.userId, req.user.id));
 
-      const discoveredCompetitors = await discoverCompetitors(industry, keywords);
+      const discoveredCompetitors = await discoverCompetitors(websiteUrl);
       
       // Filter out any competitors that the user already has
       const filteredCompetitors = discoveredCompetitors.filter(
@@ -258,14 +229,13 @@ export function registerRoutes(app: Express) {
     if (!req.user) return res.status(401).json({ message: "Unauthorized" });
 
     try {
-      // TODO: Implement Make.com webhook integration for report generation
       const [report] = await db
         .insert(reports)
         .values({
           userId: req.user.id,
-          competitorIds: [1], // Replace with actual competitor IDs
-          modules: ["website-changes", "trustpilot"],
-          reportUrl: "https://example.com/report.pdf", // Replace with actual report URL
+          competitorIds: req.body.competitorIds || [],
+          modules: req.body.modules || ["website-changes", "trustpilot"],
+          reportUrl: "https://example.com/report.pdf", // Replace with actual report URL from Make.com
         })
         .returning();
       res.json(report);

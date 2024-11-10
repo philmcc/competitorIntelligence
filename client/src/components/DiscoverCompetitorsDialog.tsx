@@ -17,8 +17,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 const discoverySchema = z.object({
-  industry: z.string().min(1, "Industry is required"),
-  keywords: z.string().min(1, "At least one keyword is required")
+  websiteUrl: z.string().url("Please enter a valid URL")
 });
 
 type DiscoveryForm = z.infer<typeof discoverySchema>;
@@ -39,8 +38,7 @@ export default function DiscoverCompetitorsDialog() {
   const form = useForm<DiscoveryForm>({
     resolver: zodResolver(discoverySchema),
     defaultValues: {
-      industry: "",
-      keywords: "",
+      websiteUrl: "",
     }
   });
 
@@ -52,13 +50,13 @@ export default function DiscoverCompetitorsDialog() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          industry: data.industry,
-          keywords: data.keywords.split(",").map(k => k.trim()),
+          websiteUrl: data.websiteUrl,
         }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to discover competitors");
+        const error = await response.json();
+        throw new Error(error.message || "Failed to discover competitors");
       }
 
       const competitors = await response.json();
@@ -98,28 +96,16 @@ export default function DiscoverCompetitorsDialog() {
         </DialogHeader>
         <form onSubmit={form.handleSubmit(handleDiscover)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="industry">Industry</Label>
+            <Label htmlFor="websiteUrl">Your Website URL</Label>
             <Input
-              id="industry"
-              {...form.register("industry")}
-              placeholder="e.g., Software, Healthcare, Retail"
+              id="websiteUrl"
+              {...form.register("websiteUrl")}
+              placeholder="https://www.example.com"
+              type="url"
             />
-            {form.formState.errors.industry && (
+            {form.formState.errors.websiteUrl && (
               <p className="text-sm text-destructive">
-                {form.formState.errors.industry.message}
-              </p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="keywords">Keywords (comma-separated)</Label>
-            <Input
-              id="keywords"
-              {...form.register("keywords")}
-              placeholder="e.g., cloud computing, AI, machine learning"
-            />
-            {form.formState.errors.keywords && (
-              <p className="text-sm text-destructive">
-                {form.formState.errors.keywords.message}
+                {form.formState.errors.websiteUrl.message}
               </p>
             )}
           </div>
@@ -131,15 +117,20 @@ export default function DiscoverCompetitorsDialog() {
         {discoveredCompetitors.length > 0 && (
           <div className="mt-6 space-y-4">
             <h3 className="font-semibold">Discovered Competitors</h3>
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[400px] overflow-y-auto">
               {discoveredCompetitors.map((competitor, index) => (
                 <Card key={index} className="p-4">
                   <div className="flex justify-between items-start">
                     <div>
                       <h4 className="font-semibold">{competitor.name}</h4>
-                      <p className="text-sm text-muted-foreground">
+                      <a 
+                        href={competitor.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-blue-500 hover:underline"
+                      >
                         {competitor.website}
-                      </p>
+                      </a>
                       <p className="text-sm text-muted-foreground mt-1">
                         {competitor.reason}
                       </p>
