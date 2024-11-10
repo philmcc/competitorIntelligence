@@ -3,6 +3,7 @@ import { useCompetitors } from "../hooks/use-competitors";
 import Layout from "../components/Layout";
 import CompetitorCard from "../components/CompetitorCard";
 import AddCompetitorDialog from "../components/AddCompetitorDialog";
+import DiscoverCompetitorsDialog from "../components/DiscoverCompetitorsDialog";
 import ResearchModules from "../components/ResearchModules";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
@@ -28,7 +29,10 @@ export default function Dashboard() {
       <div className="container py-6 space-y-6">
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold">Dashboard</h1>
-          <AddCompetitorDialog />
+          <div className="flex gap-2">
+            <DiscoverCompetitorsDialog />
+            <AddCompetitorDialog />
+          </div>
         </div>
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">

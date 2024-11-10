@@ -6,6 +6,72 @@ import { eq } from "drizzle-orm";
 import { createCustomer, createSubscription, cancelSubscription, handleWebhook } from "./stripe";
 import Stripe from "stripe";
 
+// Define valid industries for type safety
+type ValidIndustry = 'Software' | 'Healthcare' | 'Retail';
+
+// Helper function to discover competitors based on industry and keywords
+async function discoverCompetitors(industry: string, keywords: string[]) {
+  // This is a mock implementation that generates more relevant suggestions
+  // based on the provided industry and keywords
+  const suggestions = [];
+  
+  // Industry-based suggestions
+  suggestions.push({
+    name: `${industry} Innovations`,
+    website: `https://www.${industry.toLowerCase().replace(/\s+/g, '')}innovations.com`,
+    reason: `Leading innovator in the ${industry} space`,
+  });
+  
+  suggestions.push({
+    name: `${industry} Global Solutions`,
+    website: `https://www.${industry.toLowerCase().replace(/\s+/g, '')}global.com`,
+    reason: `Global market leader in ${industry}`,
+  });
+
+  // Keyword-based suggestions
+  keywords.forEach((keyword, index) => {
+    if (index < 3) { // Limit to 3 keyword-based suggestions
+      const cleanKeyword = keyword.trim().toLowerCase().replace(/\s+/g, '');
+      suggestions.push({
+        name: `${keyword.trim()} Technologies`,
+        website: `https://www.${cleanKeyword}tech.com`,
+        reason: `Specializes in ${keyword.trim()} within the ${industry} sector`,
+      });
+    }
+  });
+
+  // Add some industry-specific competitors
+  const industrySpecific: Record<ValidIndustry, Array<{ name: string; website: string; reason: string; }>> = {
+    'Software': [
+      {
+        name: 'TechForward Solutions',
+        website: 'https://www.techforward.com',
+        reason: `Emerging player in ${keywords.join(', ')}`,
+      },
+    ],
+    'Healthcare': [
+      {
+        name: 'HealthTech Innovations',
+        website: 'https://www.healthtechinnovations.com',
+        reason: `Healthcare solutions provider focusing on ${keywords.join(', ')}`,
+      },
+    ],
+    'Retail': [
+      {
+        name: 'RetailNext',
+        website: 'https://www.retailnext.com',
+        reason: `Retail technology provider specializing in ${keywords.join(', ')}`,
+      },
+    ],
+  };
+
+  if (industry in industrySpecific) {
+    suggestions.push(...industrySpecific[industry as ValidIndustry]);
+  }
+
+  return suggestions;
+}
+
 export function registerRoutes(app: Express) {
   setupAuth(app);
 
@@ -53,7 +119,7 @@ export function registerRoutes(app: Express) {
 
     try {
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-        apiVersion: "2023-10-16"
+        apiVersion: "2024-10-28.acacia"
       });
       const event = stripe.webhooks.constructEvent(
         req.body,
@@ -62,8 +128,54 @@ export function registerRoutes(app: Express) {
       );
       await handleWebhook(event);
       res.json({ received: true });
-    } catch (err) {
-      res.status(400).send(`Webhook Error: ${err.message}`);
+    } catch (err: unknown) {
+      const error = err as Error;
+      res.status(400).send(`Webhook Error: ${error.message}`);
+    }
+  });
+
+  // Competitor discovery endpoint
+  app.post("/api/competitors/discover", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+
+    try {
+      const { industry, keywords } = req.body;
+      
+      if (!industry || !keywords?.length) {
+        return res.status(400).json({ 
+          message: "Industry and at least one keyword are required" 
+        });
+      }
+
+      // Validate input
+      if (typeof industry !== 'string' || !Array.isArray(keywords)) {
+        return res.status(400).json({ 
+          message: "Invalid input format" 
+        });
+      }
+
+      // Get existing competitors to avoid duplicates
+      const existingCompetitors = await db
+        .select()
+        .from(competitors)
+        .where(eq(competitors.userId, req.user.id));
+
+      const discoveredCompetitors = await discoverCompetitors(industry, keywords);
+      
+      // Filter out any competitors that the user already has
+      const filteredCompetitors = discoveredCompetitors.filter(
+        discovered => !existingCompetitors.some(
+          existing => existing.website === discovered.website
+        )
+      );
+
+      res.json(filteredCompetitors);
+    } catch (error) {
+      console.error('Competitor discovery error:', error);
+      res.status(500).json({ 
+        message: "Failed to discover competitors",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 
