@@ -20,10 +20,9 @@ function isValidWebhookUrl(url: string): boolean {
 // Helper function to discover competitors based on website URL
 async function discoverCompetitors(websiteUrl: string) {
   try {
-    // Make.com webhook for competitor discovery
     const webhookUrl = process.env.MAKE_DISCOVERY_WEBHOOK_URL;
     if (!webhookUrl) {
-      throw new Error("Make.com webhook URL is not configured in environment variables");
+      throw new Error("Make.com webhook URL is not configured");
     }
 
     // Validate webhook URL
@@ -31,7 +30,7 @@ async function discoverCompetitors(websiteUrl: string) {
       throw new Error("Invalid Make.com webhook URL format");
     }
 
-    // Send request to Make.com webhook with enhanced headers and body format
+    // Enhanced request with better error handling and timeout
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: {
@@ -40,53 +39,42 @@ async function discoverCompetitors(websiteUrl: string) {
         'Accept': 'application/json'
       },
       body: JSON.stringify({
-        url: websiteUrl,
+        website_url: websiteUrl,
         format: "json",
-        include_metadata: true
+        include_metadata: true,
+        timeout: 30000 // 30 seconds timeout
       })
     });
 
-    // Log response status and headers for debugging
-    console.log('Make.com webhook response status:', response.status);
-    console.log('Make.com webhook response headers:', Object.fromEntries(response.headers.entries()));
-
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Make.com webhook error response:', errorText);
-      throw new Error(`Webhook request failed (${response.status}): ${response.statusText}. ${errorText}`);
+      console.error('Webhook error:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText
+      });
+      throw new Error(`Webhook request failed: ${response.statusText}`);
     }
 
-    // Handle markdown-style JSON response
-    const responseText = await response.text();
-    const jsonStr = responseText.replace(/```json\n|\n```/g, '').trim();
-    let responseData;
-    try {
-      responseData = JSON.parse(jsonStr);
-    } catch (error) {
-      console.error('JSON parsing error:', error);
-      console.error('Response text:', responseText);
-      throw new Error('Failed to parse webhook response');
+    const data = await response.json();
+    
+    // Validate response structure
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid response format from webhook');
     }
 
-    // Validate the response structure
-    if (!responseData || typeof responseData !== 'object') {
-      throw new Error('Invalid response format: Expected a JSON object');
-    }
-
-    // Extract competitors from the response
-    const competitors = Array.isArray(responseData) ? responseData : [responseData];
+    // Handle both array and single object responses
+    const competitors = Array.isArray(data) ? data : [data];
+    
     return competitors.map(comp => ({
-      name: comp.name || 'Unknown Company',
-      website: comp.url || comp.website || '',
-      reason: comp.reason || `Competitor in your industry`
+      name: comp.company_name || comp.name || 'Unknown Company',
+      website: comp.website_url || comp.website || comp.url || '',
+      reason: comp.discovery_reason || comp.reason || 'Competitor in your industry'
     }));
 
   } catch (error) {
-    console.error('Make.com webhook detailed error:', error);
-    if (error instanceof Error) {
-      throw new Error(`Competitor discovery failed: ${error.message}`);
-    }
-    throw new Error('An unexpected error occurred during competitor discovery');
+    console.error('Competitor discovery error:', error);
+    throw error;
   }
 }
 
@@ -137,7 +125,7 @@ export function registerRoutes(app: Express) {
 
     try {
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-        apiVersion: "2024-10-28.acacia"
+        apiVersion: "2023-10-16"
       });
       const event = stripe.webhooks.constructEvent(
         req.body,
@@ -182,14 +170,14 @@ export function registerRoutes(app: Express) {
 
       const discoveredCompetitors = await discoverCompetitors(websiteUrl);
       
-      // Filter out any competitors that the user already has
-      const filteredCompetitors = discoveredCompetitors.filter(
+      // Filter out duplicates
+      const newCompetitors = discoveredCompetitors.filter(
         discovered => !existingCompetitors.some(
           existing => existing.website === discovered.website
         )
       );
 
-      res.json(filteredCompetitors);
+      res.json(newCompetitors);
     } catch (error) {
       console.error('Competitor discovery error:', error);
       res.status(500).json({ 
