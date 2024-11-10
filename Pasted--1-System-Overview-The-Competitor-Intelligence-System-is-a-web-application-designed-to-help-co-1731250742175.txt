@@ -1,0 +1,356 @@
+## 1. System Overview
+
+The Competitor Intelligence System is a web application designed to help companies monitor and analyze their competitors. Users can add competitors, select specific research modules for data collection, and receive periodic reports summarizing the findings. The backend processing, including data collection and report generation, is handled by Make.com (Integromat) scenarios triggered via webhooks. Research data collection is scheduled independently from report generation to ensure up-to-date data is available when reports are generated.
+
+---
+
+## 2. Features
+
+### 2.1. User Authentication and Account Management
+
+- **User Registration:**
+  - Users can create an account using their email and a password.
+  - Email verification is required to activate the account.
+
+- **Login:**
+  - Secure login with email and password.
+  - Option to reset password via email verification.
+
+- **Account Management:**
+  - View and update personal and company information.
+  - Manage subscription plans (upgrade, downgrade, cancel).
+  - Update billing information and view billing history.
+
+### 2.2. Competitor Management
+
+- **Add Competitors Manually:**
+  - Users can manually add competitors by providing:
+    - Competitor Name (required)
+    - Website URL (required)
+    - Reason for considering them a competitor (optional)
+    - Additional fields (up to 15 total; only 3 available on the Free Plan)
+
+- **Automatic Competitor Discovery:**
+  - System suggests potential competitors based on the user's industry and company profile. 
+  - Users can select from the suggested list to add to their tracking list.
+
+- **Competitor Replacement:**
+  - Users can replace a competitor with another one at any time.
+  - Useful when a competitor is no longer relevant.
+
+- **Regenerate Competitor Data:**
+  - Option to manually trigger data re-collection for a specific competitor.
+  - Useful for getting the most recent data outside the regular schedule.
+
+### 2.3. Research Modules and Data Collection
+
+**Overview**
+
+- Research for each competitor and module is conducted independently from report generation.
+- Research data collection is scheduled throughout the week to distribute processing load.
+- Before generating a report, the system checks if the latest research data is available since the last report. If not, it triggers data collection for missing data.
+- If a competitor is not included in any active reports, research data collection for that competitor is paused.
+- Admin interface provides control over research data collection for all competitors.
+
+**Available Modules**
+
+- **Website Change Tracking** (Free and Paid Plans)
+  - Monitors changes to competitor websites.
+- **Trustpilot Review Monitoring** (Free and Paid Plans)
+  - Tracks new reviews and ratings on Trustpilot.
+- **Additional Modules** (Paid Plans Only)
+  - Examples: Social Media Monitoring, SEO Analysis, Financial Reports, etc.
+
+**Research Data Collection Process**
+
+- Research data is collected for each competitor-module combination independently.
+- Data collection schedules are managed to spread the workload evenly throughout the week.
+- The system maintains a schedule to ensure all competitors have up-to-date data.
+- Data collected is stored separately from reports.
+
+**Data Handling**
+
+- When a competitor is added to the system, data collection for the selected modules begins according to the schedule.
+- If a competitor is removed from all reports, data collection for that competitor is paused to conserve resources.
+- Admin interface allows manual control over data collection for specific competitors.
+
+### 2.4. Report Generation and Management
+
+- **Report Scheduling:**
+  - Reports are generated weekly by default.
+  - Users can initiate immediate report generation.
+  - Users can choose the day of the week for report delivery.
+
+- **Data Verification Before Report Generation:**
+  - System verifies that the latest research data is available for each competitor and module included in the report.
+  - If data is missing or outdated, the system triggers immediate data collection before generating the report.
+
+- **Report Access:**
+  - All generated reports are accessible within the user's account.
+  - Reports are stored in an object store for download.
+  - Reports can be sent via email to specified recipients.
+
+- **Recipient Management:**
+  - Users can add multiple email addresses to receive reports.
+  - Emails are validated to ensure accurate delivery.
+
+### 2.5. Subscription Plans and Billing
+
+- **Free Plan:**
+  - Track up to 3 competitors.
+  - Access to basic modules (Website Change Tracking and Trustpilot Review Monitoring).
+  - Only 3 competitor fields available; remaining 12 are grayed out.
+
+- **Paid Plans:**
+  - Track up to 15 competitors.
+  - Access to all research modules.
+  - All 15 competitor fields are available.
+  - Different pricing tiers based on the number of modules and competitors.
+
+- **Billing:**
+  - Subscription billing handled via a payment gateway (e.g., Stripe).
+  - Option for monthly or annual billing cycles.
+  - Users can upgrade, downgrade, or cancel their subscriptions at any time.
+
+### 2.6. Admin Interface
+
+- **Competitor Research Management:**
+  - View all competitors in the system.
+  - Display the number of reports each competitor is included in.
+  - Ability to pause or resume research data collection for any competitor.
+  - Checkbox option to collect research data for competitors not included in any reports.
+
+- **Plan and Module Management:**
+  - Create and modify subscription plans.
+  - Set pricing, features, and limits for each plan.
+  - Add new research modules.
+  - Configure module details and pricing.
+  - Set up webhooks for data collection.
+
+- **User Management:**
+  - View and manage user accounts.
+  - Assist with account issues, subscription changes, etc.
+
+- **System Monitoring:**
+  - Monitor the research data collection schedule.
+  - View the status of data collection tasks.
+  - Manage webhooks and troubleshoot any issues with data collection.
+
+---
+
+## 3. Technical Requirements
+
+### 3.1. Architecture Overview
+
+- **Frontend:**
+  - Responsive web application.
+  - Technologies: HTML5, CSS3, JavaScript, and a framework like React or Vue.js.
+
+- **Backend:**
+  - RESTful API server.
+  - Technologies: Node.js with Express.js or Python with Django/Flask.
+  - Handles user authentication, data management, and communication with Make.com.
+
+### 3.2. Data Storage
+
+- **Database:**
+  - PostgreSQL for relational data (users, competitors, plans, etc.).
+  - Use JSON fields for storing variable competitor data fields if necessary.
+
+- **Object Storage:**
+  - For storing generated reports (e.g., AWS S3, Google Cloud Storage).
+
+- **Research Data Storage:**
+  - Research data collected from modules is stored in dedicated tables or collections.
+  - Data is time-stamped to keep track of when it was collected.
+  - Indexed for efficient retrieval during report generation.
+
+### 3.3. Webhooks and Backend Processing
+
+- **Make.com Integration for Research Data Collection:**
+  - Scheduled webhooks trigger data collection scenarios on Make.com for each competitor-module combination.
+  - Data collected is sent back to the application and stored in the corresponding research data tables.
+  - Webhooks can be triggered manually if up-to-date data is not available at report generation time.
+
+- **Make.com Integration for Report Generation:**
+  - When reports are to be generated, webhooks trigger scenarios on Make.com to compile reports using the latest research data.
+  - Generated reports are returned and stored in the object storage.
+
+### 3.4. Scheduling and Automation
+
+- **Research Data Collection Scheduler:**
+  - A scheduler (e.g., cron jobs) manages the timing of research data collection tasks.
+  - Competitors are distributed evenly across the week for data collection.
+  - Scheduler respects any pauses in data collection for competitors not included in any reports.
+
+- **Report Generation Scheduler:**
+  - Manages the timing of report generation based on user preferences (e.g., every Monday).
+  - Before report generation, it checks for the latest research data.
+
+### 3.5. Email Notifications
+
+- **Email Service:**
+  - Integration with an email service provider (e.g., SendGrid, Mailgun).
+  - Emails for account verification, password resets, report delivery, and notifications.
+
+### 3.6. Security and Compliance
+
+- **Data Protection:**
+  - Secure data storage using encryption at rest and in transit (SSL/TLS).
+  - Compliance with GDPR and other relevant data protection regulations.
+
+- **Authentication:**
+  - Secure password hashing (e.g., bcrypt).
+  - Protection against common attacks (SQL injection, XSS, CSRF).
+
+- **Access Control:**
+  - Users can only access their own data.
+  - Admins have elevated permissions for user and system management.
+
+---
+
+## 4. Detailed Workflow
+
+### 4.1. User Sign-Up and Login
+
+**Sign-Up Process:**
+
+1. User navigates to the registration page.
+2. User fills in:
+   - Email address.
+   - Password (with validation for strength).
+   - Company name.
+3. User selects a subscription plan (Free or Paid).
+4. If a Paid Plan is selected, the user is prompted to enter payment details.
+5. An email verification is sent to the user's email address.
+6. User clicks the verification link to activate the account.
+
+**Login Process:**
+
+1. User navigates to the login page.
+2. User enters email and password.
+3. If credentials are valid, the user is logged in and redirected to the dashboard.
+
+### 4.2. Adding Competitors
+
+**Manual Addition:**
+
+1. User clicks on "Add Competitor" on the dashboard.
+2. User enters the required fields:
+   - Competitor Name.
+   - Website URL.
+   - Reason for adding (optional).
+3. User fills in additional fields (up to plan limit):
+   - Fields might include industry, location, size, etc.
+   - On Free Plan, only 3 fields are editable; others are grayed out.
+4. User repeats the process for each competitor (up to plan limit).
+
+**Automatic Discovery:**
+
+1. User clicks on "Discover Competitors" on the dashboard.
+2. System prompts for parameters (e.g., industry, keywords).
+3. System presents a list of suggested competitors.
+4. User selects competitors to add from the list (up to plan limit).
+
+**Competitor Replacement:**
+
+1. Next to each competitor, there is a "Replace" button.
+2. User clicks "Replace" to remove the competitor.
+3. User can add a new competitor in its place.
+
+**Regenerate Competitor Data:**
+
+1. Next to each competitor, there is a "Regenerate Data" button.
+2. User clicks the button to trigger an immediate data update via webhook.
+
+### 4.3. Selecting Research Modules
+
+1. User navigates to the "Report Options" page.
+2. Available modules are listed with descriptions.
+3. Modules are categorized as:
+   - Basic Modules (available on all plans).
+   - Premium Modules (available only on Paid Plans).
+4. User selects modules to include in reports:
+   - On Free Plan, only basic modules can be selected.
+   - On Paid Plans, user can select any module (may affect billing if modules are chargeable).
+5. If module selection exceeds plan limits, the system prompts the user to upgrade.
+6. User saves the module selections.
+
+### 4.4. Research Data Collection Process
+
+**Initial Data Collection**
+
+1. **Upon Adding a Competitor:**
+   - When a user adds a competitor and selects modules, the system schedules data collection for that competitor-module combination.
+   - Data collection tasks are distributed across available time slots in the scheduler.
+
+2. **Ongoing Data Collection:**
+   - Research data is collected weekly (or as per module requirements) to keep information up-to-date.
+   - The scheduler ensures that data collection is balanced throughout the week.
+
+**Before Report Generation**
+
+1. **Data Verification:**
+   - Prior to generating a report, the system checks if the latest research data is available for each competitor-module included in the report.
+   - It compares the timestamp of the last data collection with the last report generation date.
+
+2. **Triggering Data Collection if Needed:**
+   - If data is outdated or missing, the system triggers immediate data collection via Make.com webhooks.
+   - The system waits for the new data to be collected and stored.
+
+3. **Proceeding to Report Generation:**
+   - Once all required data is confirmed to be up-to-date, the system proceeds to generate the report.
+
+**Pausing Data Collection**
+
+1. **Competitors Not in Any Reports:**
+   - If a competitor is removed from all reports (i.e., the user no longer includes it in any scheduled reports), the system automatically pauses data collection for that competitor.
+   - This conserves resources and avoids unnecessary data processing.
+
+2. **Resuming Data Collection:**
+   - If the competitor is added back into a report, data collection resumes according to the schedule.
+
+**Admin Control**
+
+- **Override Data Collection:**
+  - Admins can manually control the data collection status for any competitor.
+  - In the admin interface, a checkbox allows admins to enable or disable data collection for competitors not included in any reports.
+
+### 4.5. Setting Report Options
+
+**Setting Recipients:**
+
+1. User navigates to the "Recipients" section.
+2. User enters email addresses to receive reports.
+3. System sends a verification email to each recipient.
+4. Only verified emails will receive reports.
+
+**Scheduling Reports:**
+
+1. User selects preferred report delivery day (e.g., every Monday).
+2. User can opt to receive the first report immediately.
+
+**Saving Settings:**
+
+1. User reviews settings.
+2. User clicks "Save" to confirm report options.
+
+### 4.6. Viewing and Downloading Reports
+
+**Accessing Reports:**
+
+1. User navigates to the "Reports" page.
+2. A list of generated reports is displayed with dates and statuses.
+3. User clicks on a report to view details.
+
+**Downloading Reports:**
+
+1. Within the report details, user can download the report as a PDF or other formats.
+2. Reports are fetched from the object storage.
+
+**Email Delivery:**
+
+1. Reports are automatically sent to all verified recipients when generated.
+2. Emails include a link to view the report online and an option to download.
+
+---
