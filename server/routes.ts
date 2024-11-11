@@ -1,7 +1,7 @@
 import { Express, Request, Response, NextFunction } from "express";
 import { setupAuth } from "./auth";
 import { db } from "db";
-import { competitors, reports, subscriptions } from "db/schema";
+import { competitors, reports, subscriptions, users } from "db/schema";
 import { eq } from "drizzle-orm";
 import { createCustomer, createSubscription, cancelSubscription, handleWebhook } from "./stripe";
 import Stripe from "stripe";
@@ -21,6 +21,12 @@ const reportGenerationSchema = z.object({
   competitorIds: z.array(z.number()).optional(),
   modules: z.array(z.string()).optional()
 });
+
+// Plan limits
+const PLAN_LIMITS = {
+  free: 3,
+  pro: 15
+};
 
 // Types for webhook response
 type WebhookCompetitor = {
@@ -125,6 +131,23 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
   }
 }
 
+// Helper function to check competitor limits
+async function checkCompetitorLimit(userId: number): Promise<void> {
+  const [user] = await db.select().from(users).where(eq(users.id, userId));
+  const competitorCount = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(competitors)
+    .where(eq(competitors.userId, userId));
+
+  const limit = PLAN_LIMITS[user.plan as keyof typeof PLAN_LIMITS];
+  if (competitorCount[0].count >= limit) {
+    throw new APIError(
+      403,
+      `You have reached the maximum number of competitors (${limit}) for your ${user.plan} plan. Please upgrade to add more competitors.`
+    );
+  }
+}
+
 export function registerRoutes(app: Express) {
   setupAuth(app);
   app.use('/api', setJsonContentType);
@@ -217,16 +240,28 @@ export function registerRoutes(app: Express) {
     });
   }));
 
-  // Competitor routes
+  // Competitor routes with plan limits
   app.get("/api/competitors", requireAuth, asyncHandler(async (req: Request, res: Response) => {
     const userCompetitors = await db
       .select()
       .from(competitors)
       .where(eq(competitors.userId, req.user!.id));
     
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, req.user!.id));
+
+    const limit = PLAN_LIMITS[user.plan as keyof typeof PLAN_LIMITS];
+    
     res.json({
       status: "success",
-      data: userCompetitors
+      data: userCompetitors,
+      meta: {
+        total: userCompetitors.length,
+        limit,
+        remaining: Math.max(0, limit - userCompetitors.length)
+      }
     });
   }));
 
@@ -236,6 +271,9 @@ export function registerRoutes(app: Express) {
     if (!validation.success) {
       throw new APIError(400, "Validation failed", validation.error.errors);
     }
+
+    // Check competitor limit before adding
+    await checkCompetitorLimit(req.user!.id);
 
     const [competitor] = await db
       .insert(competitors)

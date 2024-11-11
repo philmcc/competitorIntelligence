@@ -4,6 +4,11 @@ import type { Competitor, InsertCompetitor } from "db/schema";
 type ApiResponse<T> = {
   status: "success" | "error";
   data?: T;
+  meta?: {
+    total: number;
+    limit: number;
+    remaining: number;
+  };
   message?: string;
   errors?: Array<{
     code: string;
@@ -25,6 +30,11 @@ type ApiError = {
 type ApiSuccess<T> = {
   ok: true;
   data?: T;
+  meta?: {
+    total: number;
+    limit: number;
+    remaining: number;
+  };
 };
 
 type ApiResult<T> = ApiSuccess<T> | ApiError;
@@ -43,7 +53,7 @@ export function useCompetitors() {
       };
     }
     
-    return { ok: true, data: result.data };
+    return { ok: true, data: result.data, meta: result.meta };
   };
 
   const addCompetitor = async (competitor: Omit<InsertCompetitor, "userId" | "isActive">) => {
@@ -109,6 +119,7 @@ export function useCompetitors() {
 
   return {
     competitors: data?.data || [],
+    meta: data?.meta,
     isLoading: !error && !data,
     error: error ? {
       message: "Failed to fetch competitors",

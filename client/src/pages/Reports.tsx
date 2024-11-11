@@ -5,11 +5,12 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Report } from "db/schema";
+import useSWR from "swr";
 
 export default function Reports() {
   const [, setLocation] = useLocation();
   const { user, isLoading } = useUser();
-  const [reports, setReports] = useState<Report[]>([]);
+  const { data, error } = useSWR<{ status: string; data: Report[] }>("/api/reports");
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -17,19 +18,24 @@ export default function Reports() {
     }
   }, [user, isLoading, setLocation]);
 
-  useEffect(() => {
-    fetch("/api/reports")
-      .then((res) => res.json())
-      .then(setReports);
-  }, []);
-
   const generateReport = async () => {
     const res = await fetch("/api/reports/generate", { method: "POST" });
     if (res.ok) {
       const newReport = await res.json();
-      setReports([newReport, ...reports]);
+      // Refresh the reports list
+      window.location.reload();
     }
   };
+
+  if (isLoading || !data) {
+    return <div>Loading...</div>;
+  }
+
+  if (error) {
+    return <div>Error loading reports</div>;
+  }
+
+  const reports = data.data || [];
 
   return (
     <Layout>
@@ -52,7 +58,7 @@ export default function Reports() {
                       Modules: {report.modules.join(", ")}
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      Competitors: {report.competitorIds.length}
+                      Competitors: {report.competitorIds?.length || 0}
                     </p>
                   </div>
                   <Button variant="outline" asChild>
