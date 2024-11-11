@@ -1,3 +1,4 @@
+import useSWR, { mutate } from "swr";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,27 +17,37 @@ export default function Auth() {
   const [password, setPassword] = useState("");
 
   const handleSubmit = async (action: "login" | "register") => {
-    const userData = action === "login" 
-      ? { username, password }
-      : { username, password, email };
+    try {
+      const userData = action === "login" 
+        ? { username, password }
+        : { username, password, email };
 
-    const result = await (action === "login" ? login : register)(userData);
+      const result = await (action === "login" ? login : register)(userData);
 
-    if (result.ok) {
-      // Add a small delay to ensure auth state is updated
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      toast({ 
-        title: `${action === "login" ? "Login" : "Registration"} successful` 
-      });
-      
-      // Force a refresh of the user data before redirect
-      await mutate("/api/user");
-      setLocation("/dashboard");
-    } else {
+      if (result.ok) {
+        toast({ 
+          title: `${action === "login" ? "Login" : "Registration"} successful` 
+        });
+        
+        // Ensure user data is refreshed
+        await mutate("/api/user");
+        
+        // Add a delay to allow state updates to complete
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        // Force navigation
+        window.location.href = "/dashboard";
+      } else {
+        toast({
+          title: "Error",
+          description: result.message,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
       toast({
         title: "Error",
-        description: result.message,
+        description: "An unexpected error occurred",
         variant: "destructive",
       });
     }
