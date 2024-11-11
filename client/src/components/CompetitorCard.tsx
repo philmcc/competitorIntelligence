@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { useCompetitors } from "../hooks/use-competitors";
 import type { Competitor } from "db/schema";
 import { useState } from "react";
@@ -7,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 
 export default function CompetitorCard({ competitor }: { competitor: Competitor }) {
-  const { updateCompetitor, deleteCompetitor } = useCompetitors();
+  const { updateCompetitor, deleteCompetitor, meta } = useCompetitors();
   const { toast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState(competitor);
@@ -46,12 +47,31 @@ export default function CompetitorCard({ competitor }: { competitor: Competitor 
           {isEditing ? (
             <Input
               value={formData.name}
-              onChange={(e) =>
-                setFormData({ ...formData, name: e.target.value })
-              }
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             />
           ) : (
-            competitor.name
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={competitor.isSelected}
+                onCheckedChange={async () => {
+                  const result = await updateCompetitor(competitor.id, {
+                    ...competitor,
+                    isSelected: !competitor.isSelected
+                  });
+                  if (!result.ok) {
+                    toast({
+                      title: "Error updating selection",
+                      description: result.error,
+                      variant: "destructive",
+                    });
+                  }
+                }}
+                disabled={!competitor.isSelected && meta?.remaining === 0}
+              />
+              <span className={competitor.isSelected ? "opacity-100" : "opacity-50"}>
+                {competitor.name}
+              </span>
+            </div>
           )}
         </CardTitle>
       </CardHeader>

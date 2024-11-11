@@ -27,6 +27,8 @@ export default function Dashboard() {
   }
 
   const showUpgradeAlert = meta && meta.remaining === 0 && user?.plan === "free";
+  const selectedCompetitors = competitors.filter(c => c.isSelected);
+  const availableCompetitors = competitors.filter(c => !c.isSelected);
 
   return (
     <Layout>
@@ -36,7 +38,7 @@ export default function Dashboard() {
             <h1 className="text-3xl font-bold">Dashboard</h1>
             {meta && (
               <p className="text-sm text-muted-foreground mt-1">
-                Using {meta.total} of {meta.limit} competitor slots
+                Selected {selectedCompetitors.length} of {meta.limit} competitor slots
               </p>
             )}
           </div>
@@ -47,10 +49,10 @@ export default function Dashboard() {
         </div>
 
         {showUpgradeAlert && (
-          <Alert variant="warning" className="bg-yellow-50 border-yellow-200">
+          <Alert variant="default" className="bg-yellow-50 border-yellow-200">
             <AlertCircle className="h-4 w-4 text-yellow-600" />
             <AlertDescription className="text-yellow-600">
-              You've reached the maximum number of competitors for the free plan.{" "}
+              You've reached the maximum number of selected competitors for the free plan.{" "}
               <Button
                 variant="link"
                 className="p-0 text-yellow-600 underline hover:text-yellow-700"
@@ -58,22 +60,37 @@ export default function Dashboard() {
               >
                 Upgrade to Pro
               </Button>{" "}
-              to add more competitors.
+              to select more competitors.
             </AlertDescription>
           </Alert>
         )}
 
         <section>
-          <h2 className="text-2xl font-semibold mb-4">Competitors</h2>
-          {competitors.length === 0 ? (
+          <h2 className="text-2xl font-semibold mb-4">Selected Competitors</h2>
+          {selectedCompetitors.length === 0 ? (
             <div className="text-center p-8 border rounded-lg bg-muted/10">
               <p className="text-muted-foreground">
-                No competitors added yet. Use the buttons above to add your first competitor.
+                No competitors selected. Use the switch toggle to select competitors you want to track.
               </p>
             </div>
           ) : (
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {competitors.map((competitor) => (
+              {selectedCompetitors.map((competitor) => (
+                <CompetitorCard key={competitor.id} competitor={competitor} />
+              ))}
+            </div>
+          )}
+          
+          <h2 className="text-2xl font-semibold mb-4 mt-8">Available Competitors</h2>
+          {availableCompetitors.length === 0 ? (
+            <div className="text-center p-8 border rounded-lg bg-muted/10">
+              <p className="text-muted-foreground">
+                No available competitors. Use the buttons above to add competitors.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {availableCompetitors.map((competitor) => (
                 <CompetitorCard key={competitor.id} competitor={competitor} />
               ))}
             </div>
