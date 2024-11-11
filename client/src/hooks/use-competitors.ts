@@ -1,8 +1,50 @@
 import useSWR, { mutate } from "swr";
 import type { Competitor, InsertCompetitor } from "db/schema";
 
+type ApiResponse<T> = {
+  status: "success" | "error";
+  data?: T;
+  message?: string;
+  errors?: Array<{
+    code: string;
+    message: string;
+    path: string[];
+  }>;
+};
+
+type ApiError = {
+  ok: false;
+  message: string;
+  errors?: Array<{
+    code: string;
+    message: string;
+    path: string[];
+  }>;
+};
+
+type ApiSuccess<T> = {
+  ok: true;
+  data?: T;
+};
+
+type ApiResult<T> = ApiSuccess<T> | ApiError;
+
 export function useCompetitors() {
-  const { data: competitors, error } = useSWR<Competitor[]>("/api/competitors");
+  const { data, error } = useSWR<ApiResponse<Competitor[]>>("/api/competitors");
+
+  const handleApiResponse = async <T>(response: Response): Promise<ApiResult<T>> => {
+    const result: ApiResponse<T> = await response.json();
+    
+    if (result.status === "error") {
+      return {
+        ok: false,
+        message: result.message || "An error occurred",
+        errors: result.errors
+      };
+    }
+    
+    return { ok: true, data: result.data };
+  };
 
   const addCompetitor = async (competitor: Omit<InsertCompetitor, "userId" | "isActive">) => {
     try {
@@ -12,12 +54,16 @@ export function useCompetitors() {
         body: JSON.stringify(competitor),
       });
       
-      if (!response.ok) throw new Error("Failed to add competitor");
-      
-      await mutate("/api/competitors");
-      return { ok: true };
+      const result = await handleApiResponse<Competitor>(response);
+      if (result.ok) {
+        await mutate("/api/competitors");
+      }
+      return result;
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "An unexpected error occurred"
+      };
     }
   };
 
@@ -29,12 +75,16 @@ export function useCompetitors() {
         body: JSON.stringify(competitor),
       });
       
-      if (!response.ok) throw new Error("Failed to update competitor");
-      
-      await mutate("/api/competitors");
-      return { ok: true };
+      const result = await handleApiResponse<Competitor>(response);
+      if (result.ok) {
+        await mutate("/api/competitors");
+      }
+      return result;
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "An unexpected error occurred"
+      };
     }
   };
 
@@ -44,19 +94,26 @@ export function useCompetitors() {
         method: "DELETE",
       });
       
-      if (!response.ok) throw new Error("Failed to delete competitor");
-      
-      await mutate("/api/competitors");
-      return { ok: true };
+      const result = await handleApiResponse<void>(response);
+      if (result.ok) {
+        await mutate("/api/competitors");
+      }
+      return result;
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "An unexpected error occurred"
+      };
     }
   };
 
   return {
-    competitors,
-    isLoading: !error && !competitors,
-    error,
+    competitors: data?.data || [],
+    isLoading: !error && !data,
+    error: error ? {
+      message: "Failed to fetch competitors",
+      cause: error
+    } : undefined,
     addCompetitor,
     updateCompetitor,
     deleteCompetitor,

@@ -1,8 +1,15 @@
 import useSWR, { mutate } from "swr";
 import type { Subscription } from "db/schema";
 
+type ApiResponse<T> = {
+  status: "success" | "error";
+  data?: T;
+  message?: string;
+  errors?: any[];
+};
+
 export function useSubscription() {
-  const { data: subscription, error } = useSWR<Subscription>("/api/subscriptions/status");
+  const { data, error } = useSWR<ApiResponse<Subscription>>("/api/subscriptions/status");
 
   const subscribe = async (priceId: string) => {
     try {
@@ -12,11 +19,14 @@ export function useSubscription() {
         body: JSON.stringify({ priceId }),
       });
       
-      if (!response.ok) throw new Error("Failed to create subscription");
+      const result: ApiResponse<any> = await response.json();
       
-      const data = await response.json();
+      if (result.status === "error") {
+        throw new Error(result.message || "Failed to create subscription");
+      }
+      
       await mutate("/api/subscriptions/status");
-      return { ok: true, data };
+      return { ok: true, data: result.data };
     } catch (error) {
       return { ok: false, error: (error as Error).message };
     }
@@ -28,7 +38,11 @@ export function useSubscription() {
         method: "DELETE",
       });
       
-      if (!response.ok) throw new Error("Failed to cancel subscription");
+      const result: ApiResponse<void> = await response.json();
+      
+      if (result.status === "error") {
+        throw new Error(result.message || "Failed to cancel subscription");
+      }
       
       await mutate("/api/subscriptions/status");
       return { ok: true };
@@ -38,8 +52,8 @@ export function useSubscription() {
   };
 
   return {
-    subscription,
-    isLoading: !error && !subscription,
+    subscription: data?.data,
+    isLoading: !error && !data,
     error,
     subscribe,
     cancelSubscription,

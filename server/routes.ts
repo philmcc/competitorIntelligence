@@ -1,4 +1,4 @@
-import { Express } from "express";
+import { Express, Request, Response, NextFunction } from "express";
 import { setupAuth } from "./auth";
 import { db } from "db";
 import { competitors, reports, subscriptions } from "db/schema";
@@ -6,10 +6,52 @@ import { eq } from "drizzle-orm";
 import { createCustomer, createSubscription, cancelSubscription, handleWebhook } from "./stripe";
 import Stripe from "stripe";
 import fetch from "node-fetch";
+import { z } from "zod";
+import { APIError } from "./errors";
 
-// Add Content-Type header middleware for API routes
-const setJsonContentType = (_req: any, res: any, next: any) => {
+// Validation schemas
+const competitorSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  website: z.string().url("Invalid website URL"),
+  reason: z.string().optional(),
+  customFields: z.record(z.any()).optional()
+});
+
+const reportGenerationSchema = z.object({
+  competitorIds: z.array(z.number()).optional(),
+  modules: z.array(z.string()).optional()
+});
+
+// Types for webhook response
+type WebhookCompetitor = {
+  url: string;
+  reason: string;
+};
+
+type WebhookResponse = {
+  competitors: WebhookCompetitor[];
+};
+
+// Error handler wrapper
+const asyncHandler = (fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) => 
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await fn(req, res, next);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+// Middleware
+const setJsonContentType = (_req: Request, res: Response, next: NextFunction) => {
   res.setHeader('Content-Type', 'application/json');
+  next();
+};
+
+const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    throw new APIError(401, "Unauthorized");
+  }
   next();
 };
 
@@ -24,19 +66,17 @@ function isValidWebhookUrl(url: string): boolean {
 }
 
 // Helper function to discover competitors based on website URL
-async function discoverCompetitors(websiteUrl: string) {
+async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: string; website: string; reason: string}>> {
   try {
     const webhookUrl = process.env.MAKE_DISCOVERY_WEBHOOK_URL;
     if (!webhookUrl) {
-      throw new Error("Make.com webhook URL is not configured");
+      throw new APIError(500, "Make.com webhook URL is not configured");
     }
 
-    // Validate webhook URL
     if (!isValidWebhookUrl(webhookUrl)) {
-      throw new Error("Invalid Make.com webhook URL format");
+      throw new APIError(400, "Invalid Make.com webhook URL format");
     }
 
-    // Enhanced request with better error handling and timeout
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: {
@@ -48,7 +88,7 @@ async function discoverCompetitors(websiteUrl: string) {
         website_url: websiteUrl,
         format: "json",
         include_metadata: true,
-        timeout: 30000 // 30 seconds timeout
+        timeout: 30000
       })
     });
 
@@ -59,241 +99,239 @@ async function discoverCompetitors(websiteUrl: string) {
         statusText: response.statusText,
         error: errorText
       });
-      throw new Error(`Webhook request failed: ${response.statusText}`);
+      throw new APIError(response.status, `Webhook request failed: ${response.statusText}`);
     }
 
-    // Update the response parsing
     const responseText = await response.text();
     const jsonStr = responseText.replace(/```json|```/g, '').trim();
-    let data;
+    let data: WebhookResponse;
     try {
       data = JSON.parse(jsonStr);
     } catch (error) {
       console.error('JSON parsing error:', error);
       console.error('Response text:', responseText);
-      throw new Error('Failed to parse webhook response');
+      throw new APIError(500, 'Failed to parse webhook response');
     }
 
-    // Handle the new response format with competitors array
-    const competitors = data.competitors || [];
-    return competitors.map(comp => ({
-      name: comp.url.replace(/^https?:\/\//, '').replace(/\/$/, ''),  // Extract domain as name
+    return (data.competitors || []).map(comp => ({
+      name: comp.url.replace(/^https?:\/\//, '').replace(/\/$/, ''),
       website: comp.url,
       reason: comp.reason
     }));
 
   } catch (error) {
     console.error('Competitor discovery error:', error);
-    throw error;
+    throw error instanceof APIError ? error : new APIError(500, 'Internal server error during competitor discovery');
   }
 }
 
 export function registerRoutes(app: Express) {
-  // Set up authentication routes
   setupAuth(app);
-
-  // Add Content-Type middleware for API routes
   app.use('/api', setJsonContentType);
 
-  // Updated competitor discovery endpoint with improved error handling
-  app.post("/api/competitors/discover", async (req, res) => {
-    if (!req.user) {
-      return res.status(401).json({ message: "Unauthorized" });
+  // Competitor discovery endpoint
+  app.post("/api/competitors/discover", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const urlSchema = z.object({ websiteUrl: z.string().url("Invalid website URL format") });
+    const validation = urlSchema.safeParse(req.body);
+    
+    if (!validation.success) {
+      throw new APIError(400, "Validation failed", validation.error.errors);
     }
 
-    try {
-      const { websiteUrl } = req.body;
-      
-      if (!websiteUrl) {
-        return res.status(400).json({ 
-          message: "Website URL is required" 
-        });
-      }
+    const existingCompetitors = await db
+      .select()
+      .from(competitors)
+      .where(eq(competitors.userId, req.user!.id));
 
-      // Validate URL format
-      try {
-        new URL(websiteUrl);
-      } catch (e) {
-        return res.status(400).json({ 
-          message: "Invalid website URL format" 
-        });
-      }
+    const discoveredCompetitors = await discoverCompetitors(validation.data.websiteUrl);
+    
+    const newCompetitors = discoveredCompetitors.filter(discovered => 
+      !existingCompetitors.some(existing => existing.website === discovered.website)
+    );
 
-      // Get existing competitors to avoid duplicates
-      const existingCompetitors = await db
-        .select()
-        .from(competitors)
-        .where(eq(competitors.userId, req.user.id));
-
-      const discoveredCompetitors = await discoverCompetitors(websiteUrl);
-      
-      // Filter out duplicates
-      const newCompetitors = discoveredCompetitors.filter(
-        discovered => !existingCompetitors.some(
-          existing => existing.website === discovered.website
-        )
-      );
-
-      return res.json(newCompetitors);
-    } catch (error) {
-      console.error('Competitor discovery error:', error);
-      return res.status(500).json({ 
-        message: "Failed to discover competitors",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  });
+    res.json({
+      status: "success",
+      data: newCompetitors
+    });
+  }));
 
   // Subscription routes
-  app.post("/api/subscriptions", async (req, res) => {
-    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+  app.post("/api/subscriptions", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const priceSchema = z.object({ priceId: z.string() });
+    const validation = priceSchema.safeParse(req.body);
 
-    try {
-      const subscription = await createSubscription(req.user.id, req.body.priceId);
-      res.json(subscription);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to create subscription" });
+    if (!validation.success) {
+      throw new APIError(400, "Invalid price ID", validation.error.errors);
     }
-  });
 
-  app.delete("/api/subscriptions", async (req, res) => {
-    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const subscription = await createSubscription(req.user!.id, validation.data.priceId);
+    res.json({
+      status: "success",
+      data: subscription
+    });
+  }));
 
-    try {
-      await cancelSubscription(req.user.id);
-      res.json({ message: "Subscription cancelled" });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to cancel subscription" });
-    }
-  });
+  app.delete("/api/subscriptions", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    await cancelSubscription(req.user!.id);
+    res.json({
+      status: "success",
+      message: "Subscription cancelled"
+    });
+  }));
 
-  app.get("/api/subscriptions/status", async (req, res) => {
-    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
-
-    try {
-      const [subscription] = await db
-        .select()
-        .from(subscriptions)
-        .where(eq(subscriptions.userId, req.user.id));
-      res.json(subscription || { status: "none" });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch subscription status" });
-    }
-  });
+  app.get("/api/subscriptions/status", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const [subscription] = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.userId, req.user!.id));
+    
+    res.json({
+      status: "success",
+      data: subscription || { status: "none" }
+    });
+  }));
 
   // Stripe webhook handler
-  app.post("/api/webhooks/stripe", async (req, res) => {
+  app.post("/api/webhooks/stripe", asyncHandler(async (req: Request, res: Response) => {
     const sig = req.headers["stripe-signature"];
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-    try {
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-        apiVersion: "2023-10-16"
-      });
-      const event = stripe.webhooks.constructEvent(
-        req.body,
-        sig as string,
-        endpointSecret!
-      );
-      await handleWebhook(event);
-      res.json({ received: true });
-    } catch (err: unknown) {
-      const error = err as Error;
-      res.status(400).send(`Webhook Error: ${error.message}`);
+    if (!sig || !endpointSecret) {
+      throw new APIError(400, "Missing webhook signature or secret");
     }
-  });
+
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+      apiVersion: "2024-10-28.acacia"
+    });
+    
+    const event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      endpointSecret
+    );
+    
+    await handleWebhook(event);
+    res.json({
+      status: "success",
+      message: "Webhook processed"
+    });
+  }));
 
   // Competitor routes
-  app.get("/api/competitors", async (req, res) => {
-    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+  app.get("/api/competitors", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const userCompetitors = await db
+      .select()
+      .from(competitors)
+      .where(eq(competitors.userId, req.user!.id));
+    
+    res.json({
+      status: "success",
+      data: userCompetitors
+    });
+  }));
 
-    try {
-      const userCompetitors = await db
-        .select()
-        .from(competitors)
-        .where(eq(competitors.userId, req.user.id));
-      res.json(userCompetitors);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch competitors" });
+  app.post("/api/competitors", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const validation = competitorSchema.safeParse(req.body);
+
+    if (!validation.success) {
+      throw new APIError(400, "Validation failed", validation.error.errors);
     }
-  });
 
-  app.post("/api/competitors", async (req, res) => {
-    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const [competitor] = await db
+      .insert(competitors)
+      .values({
+        ...validation.data,
+        userId: req.user!.id,
+      })
+      .returning();
 
-    try {
-      const [competitor] = await db
-        .insert(competitors)
-        .values({
-          ...req.body,
-          userId: req.user.id,
-        })
-        .returning();
-      res.json(competitor);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to add competitor" });
+    res.json({
+      status: "success",
+      data: competitor
+    });
+  }));
+
+  app.put("/api/competitors/:id", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const validation = competitorSchema.partial().safeParse(req.body);
+
+    if (!validation.success) {
+      throw new APIError(400, "Validation failed", validation.error.errors);
     }
-  });
 
-  app.put("/api/competitors/:id", async (req, res) => {
-    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const [existingCompetitor] = await db
+      .select()
+      .from(competitors)
+      .where(eq(competitors.id, parseInt(req.params.id)));
 
-    try {
-      const [competitor] = await db
-        .update(competitors)
-        .set(req.body)
-        .where(eq(competitors.id, parseInt(req.params.id)))
-        .returning();
-      res.json(competitor);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to update competitor" });
+    if (!existingCompetitor || existingCompetitor.userId !== req.user!.id) {
+      throw new APIError(404, "Competitor not found");
     }
-  });
 
-  app.delete("/api/competitors/:id", async (req, res) => {
-    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const [competitor] = await db
+      .update(competitors)
+      .set(validation.data)
+      .where(eq(competitors.id, parseInt(req.params.id)))
+      .returning();
 
-    try {
-      await db
-        .delete(competitors)
-        .where(eq(competitors.id, parseInt(req.params.id)));
-      res.json({ message: "Competitor deleted successfully" });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to delete competitor" });
+    res.json({
+      status: "success",
+      data: competitor
+    });
+  }));
+
+  app.delete("/api/competitors/:id", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const [existingCompetitor] = await db
+      .select()
+      .from(competitors)
+      .where(eq(competitors.id, parseInt(req.params.id)));
+
+    if (!existingCompetitor || existingCompetitor.userId !== req.user!.id) {
+      throw new APIError(404, "Competitor not found");
     }
-  });
+
+    await db
+      .delete(competitors)
+      .where(eq(competitors.id, parseInt(req.params.id)));
+
+    res.json({
+      status: "success",
+      message: "Competitor deleted successfully"
+    });
+  }));
 
   // Report routes
-  app.get("/api/reports", async (req, res) => {
-    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+  app.get("/api/reports", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const userReports = await db
+      .select()
+      .from(reports)
+      .where(eq(reports.userId, req.user!.id));
+    
+    res.json({
+      status: "success",
+      data: userReports
+    });
+  }));
 
-    try {
-      const userReports = await db
-        .select()
-        .from(reports)
-        .where(eq(reports.userId, req.user.id));
-      res.json(userReports);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch reports" });
+  app.post("/api/reports/generate", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const validation = reportGenerationSchema.safeParse(req.body);
+
+    if (!validation.success) {
+      throw new APIError(400, "Validation failed", validation.error.errors);
     }
-  });
 
-  app.post("/api/reports/generate", async (req, res) => {
-    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const [report] = await db
+      .insert(reports)
+      .values({
+        userId: req.user!.id,
+        competitorIds: validation.data.competitorIds || [],
+        modules: validation.data.modules || ["website-changes", "trustpilot"],
+        reportUrl: "https://example.com/report.pdf", // Replace with actual report URL from Make.com
+      })
+      .returning();
 
-    try {
-      const [report] = await db
-        .insert(reports)
-        .values({
-          userId: req.user.id,
-          competitorIds: req.body.competitorIds || [],
-          modules: req.body.modules || ["website-changes", "trustpilot"],
-          reportUrl: "https://example.com/report.pdf", // Replace with actual report URL from Make.com
-        })
-        .returning();
-      res.json(report);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to generate report" });
-    }
-  });
+    res.json({
+      status: "success",
+      data: report
+    });
+  }));
 }
