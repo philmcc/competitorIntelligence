@@ -11,15 +11,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useCompetitors } from "../hooks/use-competitors";
-import { useState } from "react";
+import { useUser } from "../hooks/use-user";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const discoverySchema = z.object({
-  websiteUrl: z.string().url("Please enter a valid URL")
+  websiteUrl: z.string()
+    .url("Please enter a valid URL")
+    .refine(url => url.startsWith('http://') || url.startsWith('https://'), 
+      "URL must start with http:// or https://")
 });
 
 type DiscoveryForm = z.infer<typeof discoverySchema>;
@@ -32,18 +37,27 @@ type DiscoveredCompetitor = {
 
 export default function DiscoverCompetitorsDialog() {
   const { addCompetitor } = useCompetitors();
+  const { user } = useUser();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [discoveredCompetitors, setDiscoveredCompetitors] = useState<DiscoveredCompetitor[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [addingCompetitor, setAddingCompetitor] = useState<string | null>(null);
 
   const form = useForm<DiscoveryForm>({
     resolver: zodResolver(discoverySchema),
     defaultValues: {
-      websiteUrl: "",
+      websiteUrl: user?.websiteUrl || "",
     }
   });
+
+  // Update form when user data changes
+  useEffect(() => {
+    if (user?.websiteUrl) {
+      form.setValue("websiteUrl", user.websiteUrl);
+    }
+  }, [user?.websiteUrl, form]);
 
   const handleDiscover = async (data: DiscoveryForm) => {
     setLoading(true);
@@ -73,6 +87,11 @@ export default function DiscoverCompetitorsDialog() {
       
       if (responseData.length === 0) {
         setError("No competitors were found for the provided website. Try a different URL or add competitors manually.");
+      } else {
+        toast({
+          title: "Competitors discovered",
+          description: `Found ${responseData.length} potential competitors.`
+        });
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
@@ -88,16 +107,19 @@ export default function DiscoverCompetitorsDialog() {
   };
 
   const handleAddCompetitor = async (competitor: DiscoveredCompetitor) => {
+    setAddingCompetitor(competitor.website);
     try {
       const result = await addCompetitor(competitor);
       if (result.ok) {
-        toast({ title: "Competitor added successfully" });
-        // Remove the added competitor from the list
+        toast({ 
+          title: "Competitor added successfully",
+          description: `${competitor.name} has been added to your competitors list.`
+        });
         setDiscoveredCompetitors(prev => 
           prev.filter(c => c.website !== competitor.website)
         );
       } else {
-        throw new Error(result.error);
+        throw new Error(result.message);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to add competitor";
@@ -106,6 +128,8 @@ export default function DiscoverCompetitorsDialog() {
         description: errorMessage,
         variant: "destructive",
       });
+    } finally {
+      setAddingCompetitor(null);
     }
   };
 
@@ -118,7 +142,9 @@ export default function DiscoverCompetitorsDialog() {
         <DialogHeader>
           <DialogTitle>Discover Competitors</DialogTitle>
           <DialogDescription>
-            Enter your website URL to discover potential competitors in your industry.
+            {user?.websiteUrl 
+              ? "Using your website URL to discover potential competitors in your industry."
+              : "Enter your website URL to discover potential competitors in your industry."}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(handleDiscover)} className="space-y-4">
@@ -132,29 +158,38 @@ export default function DiscoverCompetitorsDialog() {
               disabled={loading}
             />
             {form.formState.errors.websiteUrl && (
-              <p className="text-sm text-destructive flex items-center gap-1">
+              <Alert variant="destructive" className="mt-2">
                 <AlertCircle className="h-4 w-4" />
-                {form.formState.errors.websiteUrl.message}
-              </p>
+                <AlertDescription>
+                  {form.formState.errors.websiteUrl.message}
+                </AlertDescription>
+              </Alert>
             )}
           </div>
-          <Button type="submit" disabled={loading}>
-            {loading ? "Discovering..." : "Discover"}
+          <Button type="submit" disabled={loading} className="w-full">
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Discovering competitors...
+              </>
+            ) : (
+              "Discover Competitors"
+            )}
           </Button>
         </form>
 
         {error && (
-          <div className="mt-4 p-4 border border-destructive/50 rounded-lg bg-destructive/10">
-            <p className="text-sm text-destructive flex items-center gap-2">
-              <AlertCircle className="h-4 w-4" />
-              {error}
-            </p>
-          </div>
+          <Alert variant="destructive" className="mt-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         {discoveredCompetitors.length > 0 && (
           <div className="mt-6 space-y-4">
-            <h3 className="font-semibold">Discovered Competitors</h3>
+            <h3 className="font-semibold">
+              Discovered Competitors ({discoveredCompetitors.length})
+            </h3>
             <div className="space-y-3 max-h-[400px] overflow-y-auto">
               {discoveredCompetitors.map((competitor, index) => (
                 <Card key={index} className="p-4">
@@ -176,8 +211,16 @@ export default function DiscoverCompetitorsDialog() {
                     <Button
                       size="sm"
                       onClick={() => handleAddCompetitor(competitor)}
+                      disabled={addingCompetitor === competitor.website}
                     >
-                      Add
+                      {addingCompetitor === competitor.website ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Adding...
+                        </>
+                      ) : (
+                        "Add"
+                      )}
                     </Button>
                   </div>
                 </Card>

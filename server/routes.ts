@@ -18,9 +18,11 @@ const competitorSchema = z.object({
   isSelected: z.boolean().optional()
 });
 
-const reportGenerationSchema = z.object({
-  competitorIds: z.array(z.number()).optional(),
-  modules: z.array(z.string()).optional()
+const websiteUrlSchema = z.object({
+  websiteUrl: z.string().url("Invalid website URL").refine(
+    url => url.startsWith('http://') || url.startsWith('https://'),
+    "URL must start with http:// or https://"
+  )
 });
 
 // Plan limits
@@ -155,8 +157,7 @@ export function registerRoutes(app: Express) {
 
   // Website URL update endpoint
   app.put("/api/user/website", requireAuth, asyncHandler(async (req: Request, res: Response) => {
-    const urlSchema = z.object({ websiteUrl: z.string().url("Invalid website URL") });
-    const validation = urlSchema.safeParse(req.body);
+    const validation = websiteUrlSchema.safeParse(req.body);
 
     if (!validation.success) {
       throw new APIError(400, "Invalid website URL", validation.error.errors);
@@ -164,17 +165,48 @@ export function registerRoutes(app: Express) {
 
     const [updatedUser] = await db
       .update(users)
-      .set({ website_url: validation.data.websiteUrl })
+      .set({ websiteUrl: validation.data.websiteUrl })
       .where(eq(users.id, req.user!.id))
       .returning();
 
+    // After updating the website URL, try to discover competitors
+    try {
+      const competitors = await discoverCompetitors(validation.data.websiteUrl);
+      res.json({
+        status: "success",
+        data: {
+          user: updatedUser,
+          suggestedCompetitors: competitors
+        }
+      });
+    } catch (error) {
+      // If competitor discovery fails, still return the updated user
+      res.json({
+        status: "success",
+        data: {
+          user: updatedUser,
+          suggestedCompetitors: []
+        }
+      });
+    }
+  }));
+
+  // Competitor discovery endpoint
+  app.post("/api/competitors/discover", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const validation = websiteUrlSchema.safeParse(req.body);
+
+    if (!validation.success) {
+      throw new APIError(400, "Invalid website URL", validation.error.errors);
+    }
+
+    const discoveredCompetitors = await discoverCompetitors(validation.data.websiteUrl);
     res.json({
       status: "success",
-      data: updatedUser
+      data: discoveredCompetitors
     });
   }));
 
-  // Competitor routes with plan limits
+  // Other existing routes...
   app.get("/api/competitors", requireAuth, asyncHandler(async (req: Request, res: Response) => {
     const userCompetitors = await db
       .select()
@@ -207,7 +239,6 @@ export function registerRoutes(app: Express) {
       throw new APIError(400, "Validation failed", validation.error.errors);
     }
 
-    // Check competitor limit before adding
     await checkCompetitorLimit(req.user!.id);
 
     const [competitor] = await db
@@ -240,7 +271,6 @@ export function registerRoutes(app: Express) {
       throw new APIError(404, "Competitor not found");
     }
 
-    // If trying to select a competitor, check the limit
     if (validation.data.isSelected && !existingCompetitor.isSelected) {
       const selectedCount = await db
         .select({ count: sql<number>`count(*)` })
@@ -295,78 +325,6 @@ export function registerRoutes(app: Express) {
     res.json({
       status: "success",
       message: "Competitor deleted successfully"
-    });
-  }));
-
-  // Subscription routes
-  app.post("/api/subscriptions", requireAuth, asyncHandler(async (req: Request, res: Response) => {
-    const priceSchema = z.object({ priceId: z.string() });
-    const validation = priceSchema.safeParse(req.body);
-
-    if (!validation.success) {
-      throw new APIError(400, "Invalid price ID", validation.error.errors);
-    }
-
-    const subscription = await createSubscription(req.user!.id, validation.data.priceId);
-    res.json({
-      status: "success",
-      data: subscription
-    });
-  }));
-
-  app.delete("/api/subscriptions", requireAuth, asyncHandler(async (req: Request, res: Response) => {
-    await cancelSubscription(req.user!.id);
-    res.json({
-      status: "success",
-      message: "Subscription cancelled"
-    });
-  }));
-
-  app.get("/api/subscriptions/status", requireAuth, asyncHandler(async (req: Request, res: Response) => {
-    const [subscription] = await db
-      .select()
-      .from(subscriptions)
-      .where(eq(subscriptions.userId, req.user!.id));
-    
-    res.json({
-      status: "success",
-      data: subscription || { status: "none" }
-    });
-  }));
-
-  // Report routes
-  app.get("/api/reports", requireAuth, asyncHandler(async (req: Request, res: Response) => {
-    const userReports = await db
-      .select()
-      .from(reports)
-      .where(eq(reports.userId, req.user!.id));
-    
-    res.json({
-      status: "success",
-      data: userReports
-    });
-  }));
-
-  app.post("/api/reports/generate", requireAuth, asyncHandler(async (req: Request, res: Response) => {
-    const validation = reportGenerationSchema.safeParse(req.body);
-
-    if (!validation.success) {
-      throw new APIError(400, "Validation failed", validation.error.errors);
-    }
-
-    const [report] = await db
-      .insert(reports)
-      .values({
-        userId: req.user!.id,
-        competitorIds: validation.data.competitorIds || [],
-        modules: validation.data.modules || ["website-changes", "trustpilot"],
-        reportUrl: "https://example.com/report.pdf", // Replace with actual report URL from Make.com
-      })
-      .returning();
-
-    res.json({
-      status: "success",
-      data: report
     });
   }));
 }
