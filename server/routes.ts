@@ -31,39 +31,6 @@ const PLAN_LIMITS = {
   pro: 15
 };
 
-// Types for webhook response
-type WebhookCompetitor = {
-  url: string;
-  reason: string;
-};
-
-type WebhookResponse = {
-  competitors: WebhookCompetitor[];
-};
-
-// Error handler wrapper
-const asyncHandler = (fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) => 
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      await fn(req, res, next);
-    } catch (error) {
-      next(error);
-    }
-  };
-
-// Middleware
-const setJsonContentType = (_req: Request, res: Response, next: NextFunction) => {
-  res.setHeader('Content-Type', 'application/json');
-  next();
-};
-
-const requireAuth = (req: Request, res: Response, next: NextFunction) => {
-  if (!req.user) {
-    throw new APIError(401, "Unauthorized");
-  }
-  next();
-};
-
 // Helper function to validate webhook URL
 function isValidWebhookUrl(url: string): boolean {
   try {
@@ -90,20 +57,16 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'Competitor-Intelligence-System/1.0',
-        'Accept': 'application/json'
+        'User-Agent': 'Competitor-Intelligence-System/1.0'
       },
       body: JSON.stringify({
-        website_url: websiteUrl,
-        format: "json",
-        include_metadata: true,
-        timeout: 30000
+        website_url: websiteUrl
       })
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Webhook error:', {
+      console.error('Webhook error response:', {
         status: response.status,
         statusText: response.statusText,
         error: errorText
@@ -111,28 +74,67 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       throw new APIError(response.status, `Webhook request failed: ${response.statusText}`);
     }
 
-    const responseText = await response.text();
-    const jsonStr = responseText.replace(/```json|```/g, '').trim();
-    let data: WebhookResponse;
-    try {
-      data = JSON.parse(jsonStr);
-    } catch (error) {
-      console.error('JSON parsing error:', error);
-      console.error('Response text:', responseText);
-      throw new APIError(500, 'Failed to parse webhook response');
+    const responseData = await response.json();
+    console.log('Webhook response:', JSON.stringify(responseData, null, 2));
+
+    // Handle both array and object response formats
+    let competitors;
+    if (Array.isArray(responseData)) {
+      competitors = responseData;
+    } else if (responseData.competitors && Array.isArray(responseData.competitors)) {
+      competitors = responseData.competitors;
+    } else {
+      console.error('Invalid response structure:', responseData);
+      throw new APIError(400, "Invalid response structure from webhook");
     }
 
-    return (data.competitors || []).map(comp => ({
-      name: comp.url.replace(/^https?:\/\//, '').replace(/\/$/, ''),
-      website: comp.url,
-      reason: comp.reason
-    }));
+    return competitors.map(comp => {
+      const url = typeof comp === 'string' ? comp : comp.url || comp.website;
+      const reason = typeof comp === 'string' ? '' : comp.reason || '';
+      try {
+        const hostname = new URL(url).hostname.replace(/^www\./, '');
+        return {
+          name: hostname,
+          website: url,
+          reason: reason
+        };
+      } catch (error) {
+        console.error('Error parsing URL:', url, error);
+        return null;
+      }
+    }).filter(Boolean);
 
   } catch (error) {
     console.error('Competitor discovery error:', error);
-    throw error instanceof APIError ? error : new APIError(500, 'Internal server error during competitor discovery');
+    if (error instanceof APIError) {
+      throw error;
+    }
+    throw new APIError(500, `Competitor discovery failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
+
+// Error handler wrapper
+const asyncHandler = (fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) => 
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await fn(req, res, next);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+// Middleware
+const setJsonContentType = (_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Content-Type', 'application/json');
+  next();
+};
+
+const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    throw new APIError(401, "Unauthorized");
+  }
+  next();
+};
 
 // Helper function to check competitor limits
 async function checkCompetitorLimit(userId: number): Promise<void> {
@@ -155,7 +157,7 @@ export function registerRoutes(app: Express) {
   setupAuth(app);
   app.use('/api', setJsonContentType);
 
-  // Website URL update endpoint
+  // Website URL update endpoint with improved error handling
   app.put("/api/user/website", requireAuth, asyncHandler(async (req: Request, res: Response) => {
     const validation = websiteUrlSchema.safeParse(req.body);
 
@@ -163,25 +165,29 @@ export function registerRoutes(app: Express) {
       throw new APIError(400, "Invalid website URL", validation.error.errors);
     }
 
-    // Update user without transaction
-    const [updatedUser] = await db
-      .update(users)
-      .set({ websiteUrl: validation.data.websiteUrl })
-      .where(eq(users.id, req.user!.id))
-      .returning();
+    try {
+      const [updatedUser] = await db
+        .update(users)
+        .set({ websiteUrl: validation.data.websiteUrl })
+        .where(eq(users.id, req.user!.id))
+        .returning();
 
-    // Update the session user data
-    if (req.user) {
-      req.user.websiteUrl = validation.data.websiteUrl;
+      // Update the session user data
+      if (req.user) {
+        req.user.websiteUrl = validation.data.websiteUrl;
+      }
+
+      res.json({
+        status: "success",
+        data: updatedUser
+      });
+    } catch (error) {
+      console.error('Error updating website URL:', error);
+      throw new APIError(500, "Failed to update website URL");
     }
-
-    res.json({
-      status: "success",
-      data: updatedUser
-    });
   }));
 
-  // Competitor discovery endpoint
+  // Competitor discovery endpoint with enhanced validation
   app.post("/api/competitors/discover", requireAuth, asyncHandler(async (req: Request, res: Response) => {
     const validation = websiteUrlSchema.safeParse(req.body);
 
@@ -189,11 +195,28 @@ export function registerRoutes(app: Express) {
       throw new APIError(400, "Invalid website URL", validation.error.errors);
     }
 
-    const discoveredCompetitors = await discoverCompetitors(validation.data.websiteUrl);
-    res.json({
-      status: "success",
-      data: discoveredCompetitors
-    });
+    try {
+      const discoveredCompetitors = await discoverCompetitors(validation.data.websiteUrl);
+      
+      if (discoveredCompetitors.length === 0) {
+        return res.json({
+          status: "success",
+          message: "No competitors found",
+          data: []
+        });
+      }
+
+      res.json({
+        status: "success",
+        data: discoveredCompetitors
+      });
+    } catch (error) {
+      console.error('Error in competitor discovery endpoint:', error);
+      if (error instanceof APIError) {
+        throw error;
+      }
+      throw new APIError(500, "Failed to discover competitors");
+    }
   }));
 
   // Other existing routes...

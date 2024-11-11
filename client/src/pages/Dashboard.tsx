@@ -45,11 +45,17 @@ export default function Dashboard() {
       const response = await fetch("/api/user/website", {
         method: "PUT",
         headers: { 
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "Accept": "application/json"
         },
         credentials: "include",
         body: JSON.stringify({ websiteUrl })
       });
+
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Server returned non-JSON response");
+      }
 
       const result = await response.json();
       
@@ -58,8 +64,6 @@ export default function Dashboard() {
       }
 
       setIsEditing(false);
-      
-      // Ensure proper data refresh
       await Promise.all([
         mutate("/api/user"),
         mutate("/api/competitors")
