@@ -2,7 +2,7 @@ import { Express, Request, Response, NextFunction } from "express";
 import { setupAuth } from "./auth";
 import { db } from "db";
 import { competitors, reports, subscriptions, users } from "db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { createCustomer, createSubscription, cancelSubscription, handleWebhook } from "./stripe";
 import Stripe from "stripe";
 import fetch from "node-fetch";
@@ -14,7 +14,8 @@ const competitorSchema = z.object({
   name: z.string().min(1, "Name is required"),
   website: z.string().url("Invalid website URL"),
   reason: z.string().optional(),
-  customFields: z.record(z.any()).optional()
+  customFields: z.record(z.any()).optional(),
+  isSelected: z.boolean().optional()
 });
 
 const reportGenerationSchema = z.object({
@@ -253,6 +254,7 @@ export function registerRoutes(app: Express) {
       .where(eq(users.id, req.user!.id));
 
     const limit = PLAN_LIMITS[user.plan as keyof typeof PLAN_LIMITS];
+    const selectedCount = userCompetitors.filter(c => c.isSelected).length;
     
     res.json({
       status: "success",
@@ -260,7 +262,7 @@ export function registerRoutes(app: Express) {
       meta: {
         total: userCompetitors.length,
         limit,
-        remaining: Math.max(0, limit - userCompetitors.length)
+        remaining: Math.max(0, limit - selectedCount)
       }
     });
   }));
@@ -303,6 +305,32 @@ export function registerRoutes(app: Express) {
 
     if (!existingCompetitor || existingCompetitor.userId !== req.user!.id) {
       throw new APIError(404, "Competitor not found");
+    }
+
+    // If trying to select a competitor, check the limit
+    if (validation.data.isSelected && !existingCompetitor.isSelected) {
+      const selectedCount = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(competitors)
+        .where(
+          and(
+            eq(competitors.userId, req.user!.id),
+            eq(competitors.isSelected, true)
+          )
+        );
+
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, req.user!.id));
+
+      const limit = PLAN_LIMITS[user.plan as keyof typeof PLAN_LIMITS];
+      if (selectedCount[0].count >= limit) {
+        throw new APIError(
+          403,
+          `You have reached the maximum number of selected competitors (${limit}) for your ${user.plan} plan. Please upgrade to select more competitors.`
+        );
+      }
     }
 
     const [competitor] = await db

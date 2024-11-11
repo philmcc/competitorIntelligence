@@ -21,7 +21,7 @@ export default function CompetitorCard({ competitor }: { competitor: Competitor 
     } else {
       toast({
         title: "Error updating competitor",
-        description: result.error,
+        description: result.message,
         variant: "destructive",
       });
     }
@@ -34,7 +34,7 @@ export default function CompetitorCard({ competitor }: { competitor: Competitor 
     } else {
       toast({
         title: "Error deleting competitor",
-        description: result.error,
+        description: result.message,
         variant: "destructive",
       });
     }
@@ -54,6 +54,15 @@ export default function CompetitorCard({ competitor }: { competitor: Competitor 
               <Switch
                 checked={competitor.isSelected}
                 onCheckedChange={async () => {
+                  if (!competitor.isSelected && meta?.remaining === 0) {
+                    toast({
+                      title: "Plan limit reached",
+                      description: "You've reached the maximum number of selected competitors for your plan. Please upgrade to select more.",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  
                   const result = await updateCompetitor(competitor.id, {
                     ...competitor,
                     isSelected: !competitor.isSelected
@@ -61,12 +70,12 @@ export default function CompetitorCard({ competitor }: { competitor: Competitor 
                   if (!result.ok) {
                     toast({
                       title: "Error updating selection",
-                      description: result.error,
+                      description: result.message,
                       variant: "destructive",
                     });
                   }
                 }}
-                disabled={!competitor.isSelected && meta?.remaining === 0}
+                disabled={false}
               />
               <span className={competitor.isSelected ? "opacity-100" : "opacity-50"}>
                 {competitor.name}
