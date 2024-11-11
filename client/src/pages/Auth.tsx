@@ -23,7 +23,15 @@ export default function Auth() {
     const result = await (action === "login" ? login : register)(userData);
 
     if (result.ok) {
-      toast({ title: `${action === "login" ? "Login" : "Registration"} successful` });
+      // Add a small delay to ensure auth state is updated
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      toast({ 
+        title: `${action === "login" ? "Login" : "Registration"} successful` 
+      });
+      
+      // Force a refresh of the user data before redirect
+      await mutate("/api/user");
       setLocation("/dashboard");
     } else {
       toast({

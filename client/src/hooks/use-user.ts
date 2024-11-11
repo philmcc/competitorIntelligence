@@ -4,6 +4,8 @@ import type { User, InsertUser } from "db/schema";
 export function useUser() {
   const { data, error, mutate } = useSWR<User, Error>("/api/user", {
     revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+    refreshInterval: 0
   });
 
   return {
