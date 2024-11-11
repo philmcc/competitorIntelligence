@@ -164,101 +164,13 @@ export function registerRoutes(app: Express) {
 
     const [updatedUser] = await db
       .update(users)
-      .set({ websiteUrl: validation.data.websiteUrl })
+      .set({ website_url: validation.data.websiteUrl })
       .where(eq(users.id, req.user!.id))
       .returning();
 
     res.json({
       status: "success",
       data: updatedUser
-    });
-  }));
-
-  // Competitor discovery endpoint
-  app.post("/api/competitors/discover", requireAuth, asyncHandler(async (req: Request, res: Response) => {
-    const urlSchema = z.object({ websiteUrl: z.string().url("Invalid website URL format") });
-    const validation = urlSchema.safeParse(req.body);
-    
-    if (!validation.success) {
-      throw new APIError(400, "Validation failed", validation.error.errors);
-    }
-
-    const existingCompetitors = await db
-      .select()
-      .from(competitors)
-      .where(eq(competitors.userId, req.user!.id));
-
-    const discoveredCompetitors = await discoverCompetitors(validation.data.websiteUrl);
-    
-    const newCompetitors = discoveredCompetitors.filter(discovered => 
-      !existingCompetitors.some(existing => existing.website === discovered.website)
-    );
-
-    res.json({
-      status: "success",
-      data: newCompetitors
-    });
-  }));
-
-  // Subscription routes
-  app.post("/api/subscriptions", requireAuth, asyncHandler(async (req: Request, res: Response) => {
-    const priceSchema = z.object({ priceId: z.string() });
-    const validation = priceSchema.safeParse(req.body);
-
-    if (!validation.success) {
-      throw new APIError(400, "Invalid price ID", validation.error.errors);
-    }
-
-    const subscription = await createSubscription(req.user!.id, validation.data.priceId);
-    res.json({
-      status: "success",
-      data: subscription
-    });
-  }));
-
-  app.delete("/api/subscriptions", requireAuth, asyncHandler(async (req: Request, res: Response) => {
-    await cancelSubscription(req.user!.id);
-    res.json({
-      status: "success",
-      message: "Subscription cancelled"
-    });
-  }));
-
-  app.get("/api/subscriptions/status", requireAuth, asyncHandler(async (req: Request, res: Response) => {
-    const [subscription] = await db
-      .select()
-      .from(subscriptions)
-      .where(eq(subscriptions.userId, req.user!.id));
-    
-    res.json({
-      status: "success",
-      data: subscription || { status: "none" }
-    });
-  }));
-
-  // Stripe webhook handler
-  app.post("/api/webhooks/stripe", asyncHandler(async (req: Request, res: Response) => {
-    const sig = req.headers["stripe-signature"];
-    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-    if (!sig || !endpointSecret) {
-      throw new APIError(400, "Missing webhook signature or secret");
-    }
-
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-      apiVersion: "2024-10-28.acacia"
-    });
-    
-    const event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      endpointSecret
-    );
-    
-    await handleWebhook(event);
-    res.json({
-      status: "success",
-      message: "Webhook processed"
     });
   }));
 
@@ -383,6 +295,42 @@ export function registerRoutes(app: Express) {
     res.json({
       status: "success",
       message: "Competitor deleted successfully"
+    });
+  }));
+
+  // Subscription routes
+  app.post("/api/subscriptions", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const priceSchema = z.object({ priceId: z.string() });
+    const validation = priceSchema.safeParse(req.body);
+
+    if (!validation.success) {
+      throw new APIError(400, "Invalid price ID", validation.error.errors);
+    }
+
+    const subscription = await createSubscription(req.user!.id, validation.data.priceId);
+    res.json({
+      status: "success",
+      data: subscription
+    });
+  }));
+
+  app.delete("/api/subscriptions", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    await cancelSubscription(req.user!.id);
+    res.json({
+      status: "success",
+      message: "Subscription cancelled"
+    });
+  }));
+
+  app.get("/api/subscriptions/status", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const [subscription] = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.userId, req.user!.id));
+    
+    res.json({
+      status: "success",
+      data: subscription || { status: "none" }
     });
   }));
 
