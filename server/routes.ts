@@ -31,16 +31,6 @@ const PLAN_LIMITS = {
   pro: 15
 };
 
-// Helper function to validate webhook URL
-function isValidWebhookUrl(url: string): boolean {
-  try {
-    const parsedUrl = new URL(url);
-    return parsedUrl.protocol === 'https:' && parsedUrl.hostname.includes('make.com');
-  } catch {
-    return false;
-  }
-}
-
 // Helper function to discover competitors based on website URL
 async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: string; website: string; reason: string}>> {
   try {
@@ -49,34 +39,18 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       throw new APIError(500, "Make.com webhook URL is not configured");
     }
 
-    console.log('Sending request to webhook:', {
-      url: webhookUrl,
-      requestBody: { website_url: websiteUrl }
-    });
-
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'User-Agent': 'Competitor-Intelligence-System/1.0'
+        'Accept': 'application/json'
       },
       body: JSON.stringify({
         website_url: websiteUrl
       })
     });
 
-    // Log raw response details
-    console.log('Webhook response status:', response.status);
-    console.log('Webhook response headers:', Object.fromEntries(response.headers));
-    
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Webhook error response:', {
-        status: response.status,
-        statusText: response.statusText,
-        error: errorText
-      });
       throw new APIError(response.status, `Webhook request failed: ${response.statusText}`);
     }
 
@@ -91,42 +65,13 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       throw new APIError(400, "Invalid JSON response from webhook");
     }
 
-    console.log('Parsed webhook response:', JSON.stringify(responseData, null, 2));
-
-    // Handle different response formats
-    let competitors = [];
-    if (Array.isArray(responseData)) {
-      competitors = responseData;
-    } else if (responseData.competitors && Array.isArray(responseData.competitors)) {
-      competitors = responseData.competitors;
-    } else if (responseData.data && Array.isArray(responseData.data)) {
-      competitors = responseData.data;
-    } else if (typeof responseData === 'object') {
-      // If single competitor object
-      competitors = [responseData];
-    } else {
-      console.error('Unhandled response structure:', responseData);
-      throw new APIError(400, "Unexpected response format from webhook");
+    // Specifically handle the expected format where competitors is an array in the response
+    if (!responseData.competitors || !Array.isArray(responseData.competitors)) {
+      throw new APIError(400, "Invalid response format: missing competitors array");
     }
 
-    return competitors.map(comp => {
-      // Handle both string and object formats
-      if (typeof comp === 'string') {
-        try {
-          const hostname = new URL(comp).hostname.replace(/^www\./, '');
-          return {
-            name: hostname,
-            website: comp,
-            reason: ''
-          };
-        } catch (error) {
-          console.error('Error parsing competitor URL:', comp, error);
-          return null;
-        }
-      }
-
-      // Handle object format
-      const website = comp.url || comp.website || comp.link;
+    return responseData.competitors.map(comp => {
+      const website = comp.url;
       if (!website) {
         console.error('No URL found in competitor object:', comp);
         return null;
@@ -135,9 +80,9 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       try {
         const hostname = new URL(website).hostname.replace(/^www\./, '');
         return {
-          name: comp.name || hostname,
+          name: hostname,
           website: website,
-          reason: comp.reason || comp.description || ''
+          reason: comp.reason || ''
         };
       } catch (error) {
         console.error('Error parsing competitor data:', comp, error);

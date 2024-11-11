@@ -1,0 +1,88 @@
+{
+  "competitors": [
+    {
+      "url": "https://sindenlightgun.com",
+      "reason": "The Sinden Lightgun website is a competitor because it also focuses on light gun technology and gaming, offering a product that competes directly with the PDP Mars Lightgun discussed on LightGunGamer."
+    },
+    {
+      "url": "https://www.retrocollect.com/",
+      "reason": "RetroCollect is a site dedicated to retro gaming, which aligns with the retro gaming and emulation interests of LightGunGamer."
+    },
+    {
+      "url": "https://www.emuparadise.me/",
+      "reason": "EmuParadise is a popular site for emulation and retro games, which is a key focus area of LightGunGamer."
+    },
+    {
+      "url": "https://www.gamefaqs.com/",
+      "reason": "GameFAQs is a comprehensive gaming site that includes forums, reviews, and guides, which could attract the same audience interested in light guns and retro gaming."
+    },
+    {
+      "url": "https://www.ign.com/",
+      "reason": "IGN is a major gaming news and review site that covers various aspects of gaming, including hardware and retro games."
+    },
+    {
+      "url": "https://www.gamerevolution.com/",
+      "reason": "Game Revolution is another gaming news and review site that could compete for the attention of gamers interested in light guns and retro gaming."
+    },
+    {
+      "url": "https://www.digitalspy.com/gaming/",
+      "reason": "Digital Spy's gaming section covers news, reviews, and features on various gaming topics, including retro gaming and gaming hardware."
+    },
+    {
+      "url": "https://www.polygon.com/",
+      "reason": "Polygon is a gaming site that includes in-depth reviews, news, and features on gaming hardware and retro games."
+    },
+    {
+      "url": "https://www.kotaku.com/",
+      "reason": "Kotaku is a popular gaming blog that covers a wide range of gaming topics, including retro gaming and gaming hardware."
+    },
+    {
+      "url": "https://www.racketboy.com/",
+      "reason": "Racketboy is a site dedicated to retro gaming and collecting, which aligns closely with the interests of LightGunGamer's audience."
+    },
+    {
+      "url": "https://www.hardcoregaming101.net/",
+      "reason": "Hardcore Gaming 101 is a site that focuses on in-depth reviews and articles about retro and obscure games."
+    },
+    {
+      "url": "https://www.gamasutra.com/",
+      "reason": "Gamasutra is a site focused on game development and the gaming industry, which can attract developers and enthusiasts interested in light gun technology."
+    },
+    {
+      "url": "https://www.eurogamer.net/",
+      "reason": "Eurogamer is a major European gaming site that covers news, reviews, and features on various gaming topics, including retro gaming and gaming hardware."
+    },
+    {
+      "url": "https://www.giantbomb.com/",
+      "reason": "Giant Bomb is a comprehensive gaming site with reviews, news, and a large database of games, including retro titles."
+    },
+    {
+      "url": "https://www.neoseeker.com/",
+      "reason": "NeoSeeker is a gaming community site that includes forums, reviews, and guides, which could attract the same audience interested in light guns and retro gaming."
+    },
+    {
+      "url": "https://www.gamezone.com/",
+      "reason": "GameZone is a gaming news and review site that covers various aspects of gaming, including hardware and retro games."
+    },
+    {
+      "url": "https://www.siliconera.com/",
+      "reason": "Siliconera is a site that focuses on Japanese games and gaming culture, which can include retro and niche gaming topics."
+    },
+    {
+      "url": "https://www.dualshockers.com/",
+      "reason": "DualShockers is a gaming news and review site that covers various aspects of gaming, including retro games and gaming hardware."
+    },
+    {
+      "url": "https://www.nintendolife.com/",
+      "reason": "Nintendo Life is a site dedicated to Nintendo gaming, including retro Nintendo games and hardware."
+    },
+    {
+      "url": "https://www.purexbox.com/",
+      "reason": "Pure Xbox is a site dedicated to Xbox gaming, including retro Xbox games and gaming hardware."
+    },
+    {
+      "url": "https://www.pushsquare.com/",
+      "reason": "Push Square is a site dedicated to PlayStation gaming, including retro PlayStation games and gaming hardware."
+    }
+  ]
+}
