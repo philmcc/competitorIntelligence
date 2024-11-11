@@ -39,7 +39,7 @@ async function discoverCompetitors(websiteUrl: string) {
         'Accept': 'application/json'
       },
       body: JSON.stringify({
-        url: websiteUrl, // Changed from website_url to url
+        website_url: websiteUrl,
         format: "json",
         include_metadata: true,
         timeout: 30000 // 30 seconds timeout
@@ -56,19 +56,7 @@ async function discoverCompetitors(websiteUrl: string) {
       throw new Error(`Webhook request failed: ${response.statusText}`);
     }
 
-    // Get response as text first
-    const responseText = await response.text();
-    // Remove markdown formatting if present
-    const jsonStr = responseText.replace(/```json\n|\n```/g, '').trim();
-    
-    let data;
-    try {
-      data = JSON.parse(jsonStr);
-    } catch (error) {
-      console.error('JSON parsing error:', error);
-      console.error('Response text:', responseText);
-      throw new Error('Failed to parse webhook response');
-    }
+    const data = await response.json();
     
     // Validate response structure
     if (!data || typeof data !== 'object') {
@@ -90,7 +78,6 @@ async function discoverCompetitors(websiteUrl: string) {
   }
 }
 
-// Rest of the file remains unchanged
 export function registerRoutes(app: Express) {
   setupAuth(app);
 
