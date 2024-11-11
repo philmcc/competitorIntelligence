@@ -51,5 +51,5 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run dev"
+args = "kill -9 $(lsof -t -i:5000) 2>/dev/null || true && npm run dev"
 waitForPort = 5000
