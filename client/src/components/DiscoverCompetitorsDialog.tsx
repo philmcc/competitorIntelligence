@@ -170,7 +170,7 @@ export default function DiscoverCompetitorsDialog() {
                         {competitor.website}
                       </a>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Reason: {competitor.reason}
+                        {competitor.reason}
                       </p>
                     </div>
                     <Button

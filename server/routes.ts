@@ -56,20 +56,24 @@ async function discoverCompetitors(websiteUrl: string) {
       throw new Error(`Webhook request failed: ${response.statusText}`);
     }
 
-    const data = await response.json();
-    
-    // Validate response structure
-    if (!data || typeof data !== 'object') {
-      throw new Error('Invalid response format from webhook');
+    const responseText = await response.text();
+    // Remove markdown tags if present
+    const jsonStr = responseText.replace(/```json|```/g, '').trim();
+    let data;
+    try {
+      data = JSON.parse(jsonStr);
+    } catch (error) {
+      console.error('JSON parsing error:', error);
+      console.error('Response text:', responseText);
+      throw new Error('Failed to parse webhook response');
     }
 
-    // Handle both array and single object responses
+    // Validate and transform the response
     const competitors = Array.isArray(data) ? data : [data];
-    
     return competitors.map(comp => ({
-      name: comp.company_name || comp.name || 'Unknown Company',
+      name: comp.company_name || comp.name || comp.competitor_name || 'Unknown Company',
       website: comp.website_url || comp.website || comp.url || '',
-      reason: comp.discovery_reason || comp.reason || 'Competitor in your industry'
+      reason: comp.discovery_reason || comp.reason || comp.match_reason || 'Competitor in your industry'
     }));
 
   } catch (error) {
@@ -80,6 +84,53 @@ async function discoverCompetitors(websiteUrl: string) {
 
 export function registerRoutes(app: Express) {
   setupAuth(app);
+
+  // Updated competitor discovery endpoint
+  app.post("/api/competitors/discover", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+
+    try {
+      const { websiteUrl } = req.body;
+      
+      if (!websiteUrl) {
+        return res.status(400).json({ 
+          message: "Website URL is required" 
+        });
+      }
+
+      // Validate URL format
+      try {
+        new URL(websiteUrl);
+      } catch (e) {
+        return res.status(400).json({ 
+          message: "Invalid website URL format" 
+        });
+      }
+
+      // Get existing competitors to avoid duplicates
+      const existingCompetitors = await db
+        .select()
+        .from(competitors)
+        .where(eq(competitors.userId, req.user.id));
+
+      const discoveredCompetitors = await discoverCompetitors(websiteUrl);
+      
+      // Filter out duplicates
+      const newCompetitors = discoveredCompetitors.filter(
+        discovered => !existingCompetitors.some(
+          existing => existing.website === discovered.website
+        )
+      );
+
+      res.json(newCompetitors);
+    } catch (error) {
+      console.error('Competitor discovery error:', error);
+      res.status(500).json({ 
+        message: "Failed to discover competitors",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
 
   // Subscription routes
   app.post("/api/subscriptions", async (req, res) => {
@@ -137,53 +188,6 @@ export function registerRoutes(app: Express) {
     } catch (err: unknown) {
       const error = err as Error;
       res.status(400).send(`Webhook Error: ${error.message}`);
-    }
-  });
-
-  // Updated competitor discovery endpoint
-  app.post("/api/competitors/discover", async (req, res) => {
-    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
-
-    try {
-      const { websiteUrl } = req.body;
-      
-      if (!websiteUrl) {
-        return res.status(400).json({ 
-          message: "Website URL is required" 
-        });
-      }
-
-      // Validate URL format
-      try {
-        new URL(websiteUrl);
-      } catch (e) {
-        return res.status(400).json({ 
-          message: "Invalid website URL format" 
-        });
-      }
-
-      // Get existing competitors to avoid duplicates
-      const existingCompetitors = await db
-        .select()
-        .from(competitors)
-        .where(eq(competitors.userId, req.user.id));
-
-      const discoveredCompetitors = await discoverCompetitors(websiteUrl);
-      
-      // Filter out duplicates
-      const newCompetitors = discoveredCompetitors.filter(
-        discovered => !existingCompetitors.some(
-          existing => existing.website === discovered.website
-        )
-      );
-
-      res.json(newCompetitors);
-    } catch (error) {
-      console.error('Competitor discovery error:', error);
-      res.status(500).json({ 
-        message: "Failed to discover competitors",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
     }
   });
 
