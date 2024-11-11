@@ -33,20 +33,28 @@ export default function Dashboard() {
     try {
       const response = await fetch("/api/user/website", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json"
+        },
+        credentials: "include",
         body: JSON.stringify({ websiteUrl })
       });
 
       if (!response.ok) {
-        throw new Error("Failed to update website URL");
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to update website URL");
       }
 
+      const result = await response.json();
       setIsEditing(false);
-      mutate("/api/user"); // Refresh user data
+      await mutate("/api/user"); // Refresh user data
+      
       toast({
-        title: "Website URL updated successfully"
+        title: "Success",
+        description: "Website URL updated successfully"
       });
     } catch (error) {
+      console.error('Website URL update error:', error);
       toast({
         title: "Error updating website URL",
         description: error instanceof Error ? error.message : "An unexpected error occurred",
