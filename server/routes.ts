@@ -163,16 +163,12 @@ export function registerRoutes(app: Express) {
       throw new APIError(400, "Invalid website URL", validation.error.errors);
     }
 
-    // Start a transaction
-    const result = await db.transaction(async (tx) => {
-      const [updatedUser] = await tx
-        .update(users)
-        .set({ websiteUrl: validation.data.websiteUrl })
-        .where(eq(users.id, req.user!.id))
-        .returning();
-
-      return updatedUser;
-    });
+    // Update user without transaction
+    const [updatedUser] = await db
+      .update(users)
+      .set({ websiteUrl: validation.data.websiteUrl })
+      .where(eq(users.id, req.user!.id))
+      .returning();
 
     // Update the session user data
     if (req.user) {
@@ -181,7 +177,7 @@ export function registerRoutes(app: Express) {
 
     res.json({
       status: "success",
-      data: result
+      data: updatedUser
     });
   }));
 
