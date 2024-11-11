@@ -153,6 +153,27 @@ export function registerRoutes(app: Express) {
   setupAuth(app);
   app.use('/api', setJsonContentType);
 
+  // Website URL update endpoint
+  app.put("/api/user/website", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const urlSchema = z.object({ websiteUrl: z.string().url("Invalid website URL") });
+    const validation = urlSchema.safeParse(req.body);
+
+    if (!validation.success) {
+      throw new APIError(400, "Invalid website URL", validation.error.errors);
+    }
+
+    const [updatedUser] = await db
+      .update(users)
+      .set({ websiteUrl: validation.data.websiteUrl })
+      .where(eq(users.id, req.user!.id))
+      .returning();
+
+    res.json({
+      status: "success",
+      data: updatedUser
+    });
+  }));
+
   // Competitor discovery endpoint
   app.post("/api/competitors/discover", requireAuth, asyncHandler(async (req: Request, res: Response) => {
     const urlSchema = z.object({ websiteUrl: z.string().url("Invalid website URL format") });

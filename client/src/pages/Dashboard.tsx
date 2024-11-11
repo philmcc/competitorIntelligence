@@ -7,20 +7,53 @@ import DiscoverCompetitorsDialog from "../components/DiscoverCompetitorsDialog";
 import ResearchModules from "../components/ResearchModules";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AlertCircle } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { mutate } from "swr";
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
   const { user, isLoading: userLoading } = useUser();
   const { competitors, meta, isLoading: competitorsLoading } = useCompetitors();
+  const { toast } = useToast();
+  const [websiteUrl, setWebsiteUrl] = useState(user?.websiteUrl || "");
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     if (!userLoading && !user) {
       setLocation("/auth");
     }
   }, [user, userLoading, setLocation]);
+
+  const handleSaveWebsite = async () => {
+    try {
+      const response = await fetch("/api/user/website", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ websiteUrl })
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update website URL");
+      }
+
+      setIsEditing(false);
+      mutate("/api/user"); // Refresh user data
+      toast({
+        title: "Website URL updated successfully"
+      });
+    } catch (error) {
+      toast({
+        title: "Error updating website URL",
+        description: error instanceof Error ? error.message : "An unexpected error occurred",
+        variant: "destructive"
+      });
+    }
+  };
 
   if (userLoading || competitorsLoading) {
     return <div>Loading...</div>;
@@ -64,6 +97,36 @@ export default function Dashboard() {
             </AlertDescription>
           </Alert>
         )}
+
+        <section className="mb-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Your Website</CardTitle>
+              <CardDescription>
+                This URL is used to discover relevant competitors for your business
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-4">
+                <Input 
+                  value={websiteUrl}
+                  onChange={(e) => setWebsiteUrl(e.target.value)}
+                  placeholder="https://www.example.com"
+                  type="url"
+                  disabled={!isEditing}
+                />
+                {isEditing ? (
+                  <div className="flex gap-2">
+                    <Button onClick={handleSaveWebsite}>Save</Button>
+                    <Button variant="outline" onClick={() => setIsEditing(false)}>Cancel</Button>
+                  </div>
+                ) : (
+                  <Button variant="outline" onClick={() => setIsEditing(true)}>Edit</Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </section>
 
         <section>
           <h2 className="text-2xl font-semibold mb-4">Selected Competitors</h2>
