@@ -163,32 +163,26 @@ export function registerRoutes(app: Express) {
       throw new APIError(400, "Invalid website URL", validation.error.errors);
     }
 
-    const [updatedUser] = await db
-      .update(users)
-      .set({ websiteUrl: validation.data.websiteUrl })
-      .where(eq(users.id, req.user!.id))
-      .returning();
+    // Start a transaction
+    const result = await db.transaction(async (tx) => {
+      const [updatedUser] = await tx
+        .update(users)
+        .set({ websiteUrl: validation.data.websiteUrl })
+        .where(eq(users.id, req.user!.id))
+        .returning();
 
-    // After updating the website URL, try to discover competitors
-    try {
-      const competitors = await discoverCompetitors(validation.data.websiteUrl);
-      res.json({
-        status: "success",
-        data: {
-          user: updatedUser,
-          suggestedCompetitors: competitors
-        }
-      });
-    } catch (error) {
-      // If competitor discovery fails, still return the updated user
-      res.json({
-        status: "success",
-        data: {
-          user: updatedUser,
-          suggestedCompetitors: []
-        }
-      });
+      return updatedUser;
+    });
+
+    // Update the session user data
+    if (req.user) {
+      req.user.websiteUrl = validation.data.websiteUrl;
     }
+
+    res.json({
+      status: "success",
+      data: result
+    });
   }));
 
   // Competitor discovery endpoint

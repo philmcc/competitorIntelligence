@@ -58,7 +58,12 @@ export default function Dashboard() {
       }
 
       setIsEditing(false);
-      await mutate("/api/user"); // Refresh user data
+      
+      // Ensure proper data refresh
+      await Promise.all([
+        mutate("/api/user"),
+        mutate("/api/competitors")
+      ]);
       
       toast({
         title: "Success",
