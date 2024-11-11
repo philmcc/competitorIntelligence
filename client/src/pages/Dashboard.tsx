@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
 import { useEffect, useState } from "react";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { mutate } from "swr";
 
@@ -22,6 +22,7 @@ export default function Dashboard() {
   const { toast } = useToast();
   const [websiteUrl, setWebsiteUrl] = useState(user?.websiteUrl || "");
   const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (!userLoading && !user) {
@@ -30,6 +31,16 @@ export default function Dashboard() {
   }, [user, userLoading, setLocation]);
 
   const handleSaveWebsite = async () => {
+    if (!websiteUrl) {
+      toast({
+        title: "Error",
+        description: "Please enter a website URL",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsSaving(true);
     try {
       const response = await fetch("/api/user/website", {
         method: "PUT",
@@ -40,12 +51,12 @@ export default function Dashboard() {
         body: JSON.stringify({ websiteUrl })
       });
 
+      const result = await response.json();
+      
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to update website URL");
+        throw new Error(result.message || "Failed to update website URL");
       }
 
-      const result = await response.json();
       setIsEditing(false);
       await mutate("/api/user"); // Refresh user data
       
@@ -60,6 +71,8 @@ export default function Dashboard() {
         description: error instanceof Error ? error.message : "An unexpected error occurred",
         variant: "destructive"
       });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -116,21 +129,50 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-4">
-                <Input 
-                  value={websiteUrl}
-                  onChange={(e) => setWebsiteUrl(e.target.value)}
-                  placeholder="https://www.example.com"
-                  type="url"
-                  disabled={!isEditing}
-                />
-                {isEditing ? (
-                  <div className="flex gap-2">
-                    <Button onClick={handleSaveWebsite}>Save</Button>
-                    <Button variant="outline" onClick={() => setIsEditing(false)}>Cancel</Button>
-                  </div>
-                ) : (
-                  <Button variant="outline" onClick={() => setIsEditing(true)}>Edit</Button>
-                )}
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSaveWebsite();
+                  }}
+                  className="flex items-center gap-4 w-full"
+                >
+                  <Input 
+                    value={websiteUrl}
+                    onChange={(e) => setWebsiteUrl(e.target.value)}
+                    placeholder="https://www.example.com"
+                    type="url"
+                    disabled={!isEditing}
+                  />
+                  {isEditing ? (
+                    <div className="flex gap-2">
+                      <Button type="submit" disabled={isSaving}>
+                        {isSaving ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          "Save"
+                        )}
+                      </Button>
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        onClick={() => {
+                          setIsEditing(false);
+                          setWebsiteUrl(user?.websiteUrl || "");
+                        }}
+                        disabled={isSaving}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button type="button" variant="outline" onClick={() => setIsEditing(true)}>
+                      Edit
+                    </Button>
+                  )}
+                </form>
               </div>
             </CardContent>
           </Card>
