@@ -23,7 +23,28 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// Database health check middleware
+// Database health check middleware with retry logic
+const MAX_RETRIES = 5;
+const RETRY_DELAY = 2000; // 2 seconds
+
+async function waitForDatabase() {
+  for (let i = 0; i < MAX_RETRIES; i++) {
+    try {
+      await db.execute(sql`SELECT 1`);
+      console.log('Database connection established successfully');
+      return true;
+    } catch (error) {
+      console.error(`Database connection attempt ${i + 1} failed:`, error);
+      if (i < MAX_RETRIES - 1) {
+        console.log(`Retrying in ${RETRY_DELAY/1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      }
+    }
+  }
+  return false;
+}
+
+// Database connection middleware
 app.use(async (_req: Request, _res: Response, next: NextFunction) => {
   try {
     await db.execute(sql`SELECT 1`);
@@ -83,9 +104,34 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
-// Setup Vite middleware in development
+// Graceful shutdown handler
+function gracefulShutdown(signal: string) {
+  console.log(`\nReceived ${signal}. Starting graceful shutdown...`);
+  server.close(() => {
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
+
+  // Force close after 10s
+  setTimeout(() => {
+    console.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Setup Vite middleware and start server
 (async () => {
   try {
+    // Wait for database before starting server
+    const dbReady = await waitForDatabase();
+    if (!dbReady) {
+      console.error('Failed to connect to database after retries. Exiting...');
+      process.exit(1);
+    }
+
     if (process.env.NODE_ENV !== 'production') {
       await setupVite(app, server);
     } else {
