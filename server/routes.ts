@@ -39,41 +39,50 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       throw new APIError(500, "Make.com webhook URL is not configured");
     }
 
+    console.log('Sending request to webhook:', {
+      url: webhookUrl,
+      websiteUrl: websiteUrl
+    });
+
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         website_url: websiteUrl
       })
     });
 
-    if (!response.ok) {
-      throw new APIError(response.status, `Webhook request failed: ${response.statusText}`);
-    }
+    const contentType = response.headers.get('content-type');
+    console.log('Response content-type:', contentType);
 
     const rawResponse = await response.text();
-    console.log('Raw webhook response:', rawResponse);
+    console.log('Raw response:', rawResponse);
 
     let responseData;
     try {
       responseData = JSON.parse(rawResponse);
+      console.log('Parsed response:', responseData);
     } catch (error) {
-      console.error('Failed to parse webhook response:', error);
+      console.error('JSON parse error:', error);
       throw new APIError(400, "Invalid JSON response from webhook");
     }
 
-    // Specifically handle the expected format where competitors is an array in the response
-    if (!responseData.competitors || !Array.isArray(responseData.competitors)) {
-      throw new APIError(400, "Invalid response format: missing competitors array");
+    // Handle array response format
+    let competitors = Array.isArray(responseData) ? responseData : 
+                     responseData.competitors && Array.isArray(responseData.competitors) ? responseData.competitors :
+                     responseData.data && Array.isArray(responseData.data) ? responseData.data : null;
+
+    if (!competitors) {
+      console.error('Invalid response format:', responseData);
+      throw new APIError(400, "Invalid response format from webhook");
     }
 
-    return responseData.competitors.map(comp => {
-      const website = comp.url;
+    return competitors.map(comp => {
+      const website = comp.url || comp.website;
       if (!website) {
-        console.error('No URL found in competitor object:', comp);
+        console.error('No URL found in competitor:', comp);
         return null;
       }
 
@@ -85,13 +94,13 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
           reason: comp.reason || ''
         };
       } catch (error) {
-        console.error('Error parsing competitor data:', comp, error);
+        console.error('Error parsing URL:', website, error);
         return null;
       }
     }).filter(Boolean);
 
   } catch (error) {
-    console.error('Competitor discovery error:', error);
+    console.error('Discovery error:', error);
     if (error instanceof APIError) {
       throw error;
     }
