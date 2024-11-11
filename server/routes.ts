@@ -49,14 +49,16 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       throw new APIError(500, "Make.com webhook URL is not configured");
     }
 
-    if (!isValidWebhookUrl(webhookUrl)) {
-      throw new APIError(400, "Invalid Make.com webhook URL format");
-    }
+    console.log('Sending request to webhook:', {
+      url: webhookUrl,
+      requestBody: { website_url: websiteUrl }
+    });
 
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
         'User-Agent': 'Competitor-Intelligence-System/1.0'
       },
       body: JSON.stringify({
@@ -64,6 +66,10 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       })
     });
 
+    // Log raw response details
+    console.log('Webhook response status:', response.status);
+    console.log('Webhook response headers:', Object.fromEntries(response.headers));
+    
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Webhook error response:', {
@@ -74,32 +80,67 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       throw new APIError(response.status, `Webhook request failed: ${response.statusText}`);
     }
 
-    const responseData = await response.json();
-    console.log('Webhook response:', JSON.stringify(responseData, null, 2));
+    const rawResponse = await response.text();
+    console.log('Raw webhook response:', rawResponse);
 
-    // Handle both array and object response formats
-    let competitors;
+    let responseData;
+    try {
+      responseData = JSON.parse(rawResponse);
+    } catch (error) {
+      console.error('Failed to parse webhook response:', error);
+      throw new APIError(400, "Invalid JSON response from webhook");
+    }
+
+    console.log('Parsed webhook response:', JSON.stringify(responseData, null, 2));
+
+    // Handle different response formats
+    let competitors = [];
     if (Array.isArray(responseData)) {
       competitors = responseData;
     } else if (responseData.competitors && Array.isArray(responseData.competitors)) {
       competitors = responseData.competitors;
+    } else if (responseData.data && Array.isArray(responseData.data)) {
+      competitors = responseData.data;
+    } else if (typeof responseData === 'object') {
+      // If single competitor object
+      competitors = [responseData];
     } else {
-      console.error('Invalid response structure:', responseData);
-      throw new APIError(400, "Invalid response structure from webhook");
+      console.error('Unhandled response structure:', responseData);
+      throw new APIError(400, "Unexpected response format from webhook");
     }
 
     return competitors.map(comp => {
-      const url = typeof comp === 'string' ? comp : comp.url || comp.website;
-      const reason = typeof comp === 'string' ? '' : comp.reason || '';
+      // Handle both string and object formats
+      if (typeof comp === 'string') {
+        try {
+          const hostname = new URL(comp).hostname.replace(/^www\./, '');
+          return {
+            name: hostname,
+            website: comp,
+            reason: ''
+          };
+        } catch (error) {
+          console.error('Error parsing competitor URL:', comp, error);
+          return null;
+        }
+      }
+
+      // Handle object format
+      const website = comp.url || comp.website || comp.link;
+      if (!website) {
+        console.error('No URL found in competitor object:', comp);
+        return null;
+      }
+
       try {
-        const hostname = new URL(url).hostname.replace(/^www\./, '');
+        const hostname = new URL(website).hostname.replace(/^www\./, '');
         return {
-          name: hostname,
-          website: url,
-          reason: reason
+          name: comp.name || hostname,
+          website: website,
+          reason: comp.reason || comp.description || ''
         };
       } catch (error) {
-        console.error('Error parsing URL:', url, error);
+        console.error('Error parsing competitor data:', comp, error);
         return null;
       }
     }).filter(Boolean);
@@ -219,7 +260,7 @@ export function registerRoutes(app: Express) {
     }
   }));
 
-  // Other existing routes...
+  // Competitors management routes
   app.get("/api/competitors", requireAuth, asyncHandler(async (req: Request, res: Response) => {
     const userCompetitors = await db
       .select()
