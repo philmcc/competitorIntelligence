@@ -1,0 +1,88 @@
+{
+  "competitors": [
+    {
+      "url": "https://onlyfans.com",
+      "reason": "OnlyFans is a subscription-based platform where creators can earn money by sharing exclusive content, similar to Fanvue."
+    },
+    {
+      "url": "https://fansly.com",
+      "reason": "Fansly is a subscription-based social media platform that allows creators to monetize their content through subscriptions and tips, competing directly with Fanvue's features and user base."
+    },
+    {
+      "url": "https://mym.fans",
+      "reason": "MYM.fans is a subscription-based platform that allows creators to connect intimately with their fans through direct messaging and private media sharing, offering a similar experience to Fanvue."
+    },
+    {
+      "url": "https://fancentro.com",
+      "reason": "FanCentro is a subscription-based platform that enables adult content creators to monetize their private content, providing features like news feeds and private messages, which compete with Fanvue's offerings."
+    },
+    {
+      "url": "https://loyalfans.com",
+      "reason": "LoyalFans is a content sharing platform designed for adult content creators, offering multiple monetization methods such as live camming and video calls, similar to Fanvue's diverse monetization options."
+    },
+    {
+      "url": "https://ifans.gg",
+      "reason": "iFans is another platform where creators can sell exclusive content and engage with fans, providing a similar model to Fanvue."
+    },
+    {
+      "url": "https://fanso.me",
+      "reason": "Fanso is a community marketplace that allows creators to build their own subscription-based platforms, offering customization options that compete with Fanvue's flexibility."
+    },
+    {
+      "url": "https://fantine.com",
+      "reason": "FanTime is a subscription-based site where creators can share mature content and engage with fans, with features like domain name and logo customization, competing with Fanvue's creator-centric approach."
+    },
+    {
+      "url": "https://patreon.com",
+      "reason": "Patreon allows creators to earn money through subscriptions and exclusive content, competing with Fanvue's model of monetizing content through subscriptions and direct fan engagement."
+    },
+    {
+      "url": "https://substack.com",
+      "reason": "Substack is a platform where writers and creators can earn money through subscriptions, although it is more focused on written content, it still competes with Fanvue's subscription-based model."
+    },
+    {
+      "url": "https://justfor.fans",
+      "reason": "JustFor.Fans is a platform primarily for adult content creators, offering features like subscription tiers and exclusive content, which are similar to Fanvue's offerings."
+    },
+    {
+      "url": "https://frisk.chat",
+      "reason": "Frisk.chat is a platform that allows creators to monetize their content through subscriptions and tips, targeting a similar market as Fanvue."
+    },
+    {
+      "url": "https://ismygirl.com",
+      "reason": "IsMyGirl is a subscription-based platform for adult content creators, providing features like exclusive content and direct fan engagement, competing with Fanvue."
+    },
+    {
+      "url": "https://avantgarde.io",
+      "reason": "Avantgarde is a platform that enables creators to sell exclusive content and engage with fans, offering a model similar to Fanvue."
+    },
+    {
+      "url": "https://centrokredit.ru/fanbase/",
+      "reason": "Fanbase is a platform where creators can monetize their content through subscriptions and tips, competing with Fanvue's features."
+    },
+    {
+      "url": "https://allmylinks.com/",
+      "reason": "AllMyLinks is not a direct competitor but can be used by creators to manage their presence across multiple platforms, including those competing with Fanvue."
+    },
+    {
+      "url": "https://memberful.com/",
+      "reason": "Memberful is a platform that helps creators monetize their content through memberships and subscriptions, competing indirectly with Fanvue's model."
+    },
+    {
+      "url": "https://ko-fi.com/",
+      "reason": "Ko-fi is a platform where creators can receive tips and support from fans, although it is not subscription-based, it competes for the attention of creators and fans."
+    },
+    {
+      "url": "https://buy_me_a_coffee.com/",
+      "reason": "Buy Me a Coffee is a platform where creators can receive tips and support from fans, similar to Ko-fi, it competes for the attention of creators and fans."
+    },
+    {
+      "url": "https://tippee.com/",
+      "reason": "Tippee is another platform where creators can receive tips and support from fans, competing indirectly with Fanvue's monetization options."
+    },
+    {
+      "url": "https://fanspicy.com/",
+      "reason": "FanSpicy is an alternative platform that offers unique features and caters to diverse fan interests, competing with Fanvue for creators and fans."
+    }
+  ]
+}

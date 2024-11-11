@@ -56,8 +56,8 @@ async function discoverCompetitors(websiteUrl: string) {
       throw new Error(`Webhook request failed: ${response.statusText}`);
     }
 
+    // Update the response parsing
     const responseText = await response.text();
-    // Remove markdown tags if present
     const jsonStr = responseText.replace(/```json|```/g, '').trim();
     let data;
     try {
@@ -68,12 +68,12 @@ async function discoverCompetitors(websiteUrl: string) {
       throw new Error('Failed to parse webhook response');
     }
 
-    // Validate and transform the response
-    const competitors = Array.isArray(data) ? data : [data];
+    // Handle the new response format with competitors array
+    const competitors = data.competitors || [];
     return competitors.map(comp => ({
-      name: comp.company_name || comp.name || comp.competitor_name || 'Unknown Company',
-      website: comp.website_url || comp.website || comp.url || '',
-      reason: comp.discovery_reason || comp.reason || comp.match_reason || 'Competitor in your industry'
+      name: comp.url.replace(/^https?:\/\//, '').replace(/\/$/, ''),  // Extract domain as name
+      website: comp.url,
+      reason: comp.reason
     }));
 
   } catch (error) {
