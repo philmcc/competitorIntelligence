@@ -7,6 +7,12 @@ import { createCustomer, createSubscription, cancelSubscription, handleWebhook }
 import Stripe from "stripe";
 import fetch from "node-fetch";
 
+// Add Content-Type header middleware for API routes
+const setJsonContentType = (_req: any, res: any, next: any) => {
+  res.setHeader('Content-Type', 'application/json');
+  next();
+};
+
 // Helper function to validate webhook URL
 function isValidWebhookUrl(url: string): boolean {
   try {
@@ -83,11 +89,17 @@ async function discoverCompetitors(websiteUrl: string) {
 }
 
 export function registerRoutes(app: Express) {
+  // Set up authentication routes
   setupAuth(app);
 
-  // Updated competitor discovery endpoint
+  // Add Content-Type middleware for API routes
+  app.use('/api', setJsonContentType);
+
+  // Updated competitor discovery endpoint with improved error handling
   app.post("/api/competitors/discover", async (req, res) => {
-    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
 
     try {
       const { websiteUrl } = req.body;
@@ -122,10 +134,10 @@ export function registerRoutes(app: Express) {
         )
       );
 
-      res.json(newCompetitors);
+      return res.json(newCompetitors);
     } catch (error) {
       console.error('Competitor discovery error:', error);
-      res.status(500).json({ 
+      return res.status(500).json({ 
         message: "Failed to discover competitors",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
