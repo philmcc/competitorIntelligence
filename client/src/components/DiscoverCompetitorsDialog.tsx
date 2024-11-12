@@ -73,24 +73,30 @@ export default function DiscoverCompetitorsDialog() {
         }),
       });
 
-      const responseData = await response.json();
-
-      if (!response.ok) {
-        throw new Error(responseData.message || responseData.error || "Failed to discover competitors");
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Server returned non-JSON response");
       }
 
-      if (!Array.isArray(responseData)) {
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || result.error || "Failed to discover competitors");
+      }
+
+      // Handle the standardized API response format
+      if (result.status !== "success" || !Array.isArray(result.data)) {
         throw new Error("Invalid response format from server");
       }
 
-      setDiscoveredCompetitors(responseData);
-      
-      if (responseData.length === 0) {
+      setDiscoveredCompetitors(result.data);
+    
+      if (result.data.length === 0) {
         setError("No competitors were found for the provided website. Try a different URL or add competitors manually.");
       } else {
         toast({
           title: "Competitors discovered",
-          description: `Found ${responseData.length} potential competitors.`
+          description: `Found ${result.data.length} potential competitors.`
         });
       }
     } catch (error) {

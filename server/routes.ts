@@ -197,6 +197,7 @@ export function registerRoutes(app: Express) {
     try {
       const discoveredCompetitors = await discoverCompetitors(validation.data.websiteUrl);
       
+      // Return in standard format matching our API convention
       res.json({
         status: "success",
         data: discoveredCompetitors
