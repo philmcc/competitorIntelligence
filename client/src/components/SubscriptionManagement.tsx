@@ -29,7 +29,10 @@ const PLANS = {
   }
 };
 
-// Initialize Stripe with public key from environment
+// Initialize Stripe with proper error handling
+if (!import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
+  throw new Error('Stripe public key is not configured');
+}
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
 
 interface SubscriptionError {
@@ -55,8 +58,10 @@ export default function SubscriptionManagement() {
     try {
       setIsLoading(true);
 
-      if (!stripePromise) {
-        throw new Error("Stripe is not properly configured - Missing public key");
+      // Verify Stripe initialization
+      const stripe = await stripePromise;
+      if (!stripe) {
+        throw new Error("Stripe failed to initialize");
       }
 
       const response = await fetch('/api/subscriptions/create', {
@@ -67,20 +72,13 @@ export default function SubscriptionManagement() {
         body: JSON.stringify({ priceId: PLANS.PRO.priceId }),
       });
 
-      const data: SubscriptionResponse | SubscriptionError = await response.json();
-
       if (!response.ok) {
-        const error = data as SubscriptionError;
-        throw new Error(error.message || 'Failed to create subscription');
+        const errorData = await response.json() as SubscriptionError;
+        throw new Error(errorData.message || 'Failed to create subscription');
       }
 
-      const { data: { clientSecret } } = data as SubscriptionResponse;
-      const stripe = await stripePromise;
+      const { data: { clientSecret } } = await response.json() as SubscriptionResponse;
       
-      if (!stripe) {
-        throw new Error("Failed to initialize Stripe");
-      }
-
       const { error: paymentError, paymentIntent } = await stripe.confirmCardPayment(clientSecret);
       
       if (paymentError) {
@@ -112,16 +110,10 @@ export default function SubscriptionManagement() {
   const handleCancel = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch('/api/subscriptions/cancel', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to cancel subscription');
+      const result = await cancelSubscription();
+      
+      if (!result.ok) {
+        throw new Error(result.error || 'Failed to cancel subscription');
       }
 
       toast({
