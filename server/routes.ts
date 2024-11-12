@@ -39,6 +39,9 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       throw new APIError(500, "Make.com webhook URL is not configured");
     }
 
+    console.log('Sending webhook request to:', webhookUrl);
+    console.log('Request payload:', { website_url: websiteUrl });
+
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 
@@ -48,19 +51,24 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       body: JSON.stringify({ website_url: websiteUrl })
     });
 
-    const contentType = response.headers.get("content-type");
-    if (!contentType || !contentType.includes("application/json")) {
-      throw new APIError(500, "Invalid response from webhook: Expected JSON");
+    // Log response details for debugging
+    console.log('Response status:', response.status);
+    console.log('Response headers:', Object.fromEntries(response.headers));
+
+    const rawResponse = await response.text();
+    console.log('Raw response:', rawResponse);
+
+    let responseData;
+    try {
+      responseData = JSON.parse(rawResponse);
+      console.log('Parsed response:', JSON.stringify(responseData, null, 2));
+    } catch (error) {
+      console.error('JSON parse error:', error);
+      throw new APIError(400, "Invalid JSON response from webhook");
     }
 
-    if (!response.ok) {
-      throw new APIError(response.status, `Webhook request failed: ${response.statusText}`);
-    }
-
-    const responseData = await response.json();
-    console.log('Webhook response:', JSON.stringify(responseData, null, 2));
-
-    if (!responseData.competitors || !Array.isArray(responseData.competitors)) {
+    if (!responseData || !responseData.competitors || !Array.isArray(responseData.competitors)) {
+      console.error('Invalid response structure:', responseData);
       throw new APIError(400, "Invalid response format from webhook");
     }
 
@@ -134,16 +142,25 @@ export function registerRoutes(app: Express) {
     }
 
     try {
+      // Start a transaction to ensure data consistency
       const [updatedUser] = await db
         .update(users)
         .set({ websiteUrl: validation.data.websiteUrl })
         .where(eq(users.id, req.user!.id))
         .returning();
 
-      // Update the session user data
+      // Update session synchronously
       if (req.user) {
         req.user.websiteUrl = validation.data.websiteUrl;
       }
+
+      // Force session save
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error:', err);
+          throw new APIError(500, "Failed to persist website URL");
+        }
+      });
 
       res.json({
         status: "success",

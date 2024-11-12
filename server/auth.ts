@@ -99,6 +99,12 @@ export function setupAuth(app: Express) {
         .from(users)
         .where(eq(users.id, id))
         .limit(1);
+      
+      // Ensure all user fields are properly loaded
+      if (!user) {
+        return done(new Error('User not found'));
+      }
+      
       done(null, user);
     } catch (err) {
       done(err);
