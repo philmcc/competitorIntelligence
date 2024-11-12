@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { APIError } from "./errors";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-10-28.acacia"
+  apiVersion: "2023-10-16"
 });
 
 const PLANS = {
@@ -55,6 +55,16 @@ export async function createSubscription(userId: number, priceId: string) {
     if (!customerId) {
       const customer = await createCustomer(userId, user.email);
       customerId = customer.id;
+    }
+
+    // Check if user already has an active subscription
+    const [existingSubscription] = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.userId, userId));
+
+    if (existingSubscription && existingSubscription.status === 'active') {
+      throw new APIError(400, "User already has an active subscription");
     }
 
     // Verify price exists in Stripe

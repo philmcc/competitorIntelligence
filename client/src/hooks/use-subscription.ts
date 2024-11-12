@@ -13,7 +13,7 @@ export function useSubscription() {
 
   const subscribe = async (priceId: string) => {
     try {
-      const response = await fetch("/api/subscriptions", {
+      const response = await fetch("/api/subscriptions/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ priceId }),
@@ -21,7 +21,7 @@ export function useSubscription() {
       
       const result: ApiResponse<any> = await response.json();
       
-      if (result.status === "error") {
+      if (!response.ok) {
         throw new Error(result.message || "Failed to create subscription");
       }
       
@@ -34,13 +34,14 @@ export function useSubscription() {
 
   const cancelSubscription = async () => {
     try {
-      const response = await fetch("/api/subscriptions", {
-        method: "DELETE",
+      const response = await fetch("/api/subscriptions/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
       });
       
       const result: ApiResponse<void> = await response.json();
       
-      if (result.status === "error") {
+      if (!response.ok) {
         throw new Error(result.message || "Failed to cancel subscription");
       }
       
