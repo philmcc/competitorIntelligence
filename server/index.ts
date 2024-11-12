@@ -20,8 +20,30 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Body parsing middleware
-app.use(express.json());
+// Body parsing middleware with validation logging
+app.use(express.json({
+  verify: (req: Request, _res, buf) => {
+    try {
+      JSON.parse(buf.toString());
+      // Log request body in development
+      if (process.env.NODE_ENV === 'development') {
+        logger.logRequestBody(JSON.parse(buf.toString()), {
+          requestId: req.requestId,
+          path: req.path,
+          method: req.method
+        });
+      }
+    } catch (e) {
+      logger.error('Invalid JSON in request body', e, {
+        path: req.path,
+        method: req.method,
+        contentType: req.get('content-type'),
+        requestId: req.requestId
+      });
+      throw new APIError(400, 'Invalid JSON payload');
+    }
+  }
+}));
 app.use(express.urlencoded({ extended: false }));
 
 // Database health check middleware with retry logic
@@ -55,62 +77,168 @@ async function waitForDatabase() {
   return false;
 }
 
-// Request logging middleware
+// Enhanced request logging middleware with performance tracking
 app.use((req: Request, res: Response, next: NextFunction) => {
   const startTime = Date.now();
+  const requestId = Math.random().toString(36).substring(7);
+  
+  // Attach request ID to the request object for correlation
+  req.requestId = requestId;
+  
+  // Log request start
+  logger.info('Request started', {
+    requestId,
+    method: req.method,
+    path: req.path,
+    query: req.query,
+    userAgent: req.get('user-agent'),
+    userId: req.user?.id,
+    contentType: req.get('content-type'),
+    ip: req.ip
+  });
   
   res.on('finish', () => {
     const duration = Date.now() - startTime;
-    logger.info('Request processed', {
+    logger.info('Request completed', {
+      requestId,
       method: req.method,
       path: req.path,
       statusCode: res.statusCode,
       duration: `${duration}ms`,
+      contentLength: res.get('content-length'),
       userAgent: req.get('user-agent'),
-      userId: req.user?.id
+      userId: req.user?.id,
+      ip: req.ip
     });
   });
   
   next();
 });
 
-// Database connection middleware
+// Database connection middleware with enhanced error logging
 app.use(async (req: Request, res: Response, next: NextFunction) => {
   try {
     await db.execute(sql`SELECT 1`);
     next();
   } catch (error) {
     logger.error('Database connection failed in middleware', error, {
+      requestId: req.requestId,
       path: req.path,
       method: req.method,
-      userId: req.user?.id
+      userId: req.user?.id,
+      query: req.query,
+      ip: req.ip
     });
     next(new APIError(500, 'Database connection failed'));
   }
 });
 
-// Add routes before Vite middleware
+// Add routes before error handlers
 registerRoutes(app);
+
+// Rate limiting middleware with logging
+const requestCounts = new Map<string, { count: number; timestamp: number }>();
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const RATE_LIMIT_MAX = 100; // requests per minute
+
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  const clientIP = req.ip || 'unknown';
+  const now = Date.now();
+  const windowStart = now - RATE_LIMIT_WINDOW;
+  
+  // Clean up old entries
+  const entriesToDelete: string[] = [];
+  requestCounts.forEach((data, ip) => {
+    if (data.timestamp < windowStart) {
+      entriesToDelete.push(ip);
+    }
+  });
+  entriesToDelete.forEach(ip => requestCounts.delete(ip));
+  
+  // Get or create rate limit data for this IP
+  const rateData = requestCounts.get(clientIP) ?? { count: 0, timestamp: now };
+  
+  // Reset count if outside window
+  if (rateData.timestamp < windowStart) {
+    rateData.count = 0;
+    rateData.timestamp = now;
+  }
+  
+  rateData.count++;
+  requestCounts.set(clientIP, rateData);
+  
+  if (rateData.count > RATE_LIMIT_MAX) {
+    logger.warn('Rate limit exceeded', {
+      requestId: req.requestId,
+      clientIP,
+      count: rateData.count,
+      window: RATE_LIMIT_WINDOW,
+      limit: RATE_LIMIT_MAX,
+      path: req.path,
+      method: req.method,
+      userId: req.user?.id
+    });
+    
+    return res.status(429).json({
+      status: "error",
+      message: "Too many requests",
+      retryAfter: Math.ceil((rateData.timestamp + RATE_LIMIT_WINDOW - now) / 1000)
+    });
+  }
+  
+  next();
+});
 
 const server = createServer(app);
 const PORT = parseInt(process.env.PORT || '5000', 10);
 
-// Enhanced error handling middleware
-app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-  const errorContext = {
+// API 404 handler - after routes but before error handler
+app.use('/api/*', (req: Request, res: Response) => {
+  logger.info('API 404 Not Found', {
+    requestId: req.requestId,
     path: req.path,
     method: req.method,
     userId: req.user?.id,
+    query: req.query,
+    ip: req.ip
+  });
+  
+  res.status(404).json({
+    status: "error",
+    message: "API endpoint not found",
+    path: req.path
+  });
+});
+
+// Enhanced API error handling middleware
+app.use('/api', (err: any, req: Request, res: Response, _next: NextFunction) => {
+  const errorContext = {
+    requestId: req.requestId,
+    path: req.path,
+    method: req.method,
+    userId: req.user?.id,
+    query: req.query,
     statusCode: err.statusCode || 500,
-    errorType: err.constructor.name
+    errorType: err.constructor.name,
+    errorName: err.name,
+    timestamp: new Date().toISOString(),
+    ip: req.ip,
+    environment: process.env.NODE_ENV
   };
 
-  logger.error('Server error', err, errorContext);
+  logger.error('API error', err, errorContext);
+
+  // Include correlation ID and timestamp in all error responses
+  const baseErrorResponse = {
+    status: "error",
+    requestId: req.requestId,
+    timestamp: new Date().toISOString()
+  };
 
   // Handle different types of errors
   if (err instanceof APIError) {
     return res.status(err.statusCode).json({
-      status: "error",
+      ...baseErrorResponse,
       message: err.message,
       errors: err.errors
     });
@@ -119,7 +247,7 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
   // Handle validation errors
   if (err.name === 'ValidationError' || err.name === 'ZodError') {
     return res.status(400).json({
-      status: "error",
+      ...baseErrorResponse,
       message: "Validation failed",
       errors: err.errors || err.issues
     });
@@ -135,7 +263,7 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     logger.error('Database constraint violation', err, dbErrorContext);
     
     return res.status(400).json({
-      status: "error",
+      ...baseErrorResponse,
       message: "Database constraint violation",
       error: process.env.NODE_ENV === 'development' ? err.detail : undefined
     });
@@ -144,7 +272,7 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
   // Default error response
   const status = err.status || err.statusCode || 500;
   res.status(status).json({
-    status: "error",
+    ...baseErrorResponse,
     message: err.message || "Internal Server Error",
     ...(process.env.NODE_ENV === 'development' && { 
       stack: err.stack,
@@ -153,9 +281,23 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
-// Graceful shutdown handler
+// Non-API routes should be handled by Vite/Static file server
+if (process.env.NODE_ENV !== 'production') {
+  setupVite(app, server).catch(error => {
+    logger.error('Failed to setup Vite middleware', error);
+    process.exit(1);
+  });
+} else {
+  serveStatic(app);
+}
+
+// Graceful shutdown handler with enhanced logging
 function gracefulShutdown(signal: string) {
-  logger.info(`Starting graceful shutdown`, { signal });
+  logger.info(`Starting graceful shutdown`, { 
+    signal,
+    activeConnections: server.getConnections((err, count) => count),
+    timestamp: new Date().toISOString()
+  });
   
   server.close(() => {
     logger.info('HTTP server closed');
@@ -166,7 +308,8 @@ function gracefulShutdown(signal: string) {
   setTimeout(() => {
     logger.error('Could not close connections in time, forcefully shutting down', null, {
       signal,
-      timeoutMs: 10000
+      timeoutMs: 10000,
+      timestamp: new Date().toISOString()
     });
     process.exit(1);
   }, 10000);
@@ -183,15 +326,10 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
     if (!dbReady) {
       logger.error('Failed to connect to database after retries', null, {
         maxRetries: MAX_RETRIES,
-        totalDelayMs: MAX_RETRIES * RETRY_DELAY
+        totalDelayMs: MAX_RETRIES * RETRY_DELAY,
+        timestamp: new Date().toISOString()
       });
       process.exit(1);
-    }
-
-    if (process.env.NODE_ENV !== 'production') {
-      await setupVite(app, server);
-    } else {
-      serveStatic(app);
     }
 
     server.listen(PORT, () => {
@@ -204,11 +342,23 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
       logger.info(`Server started`, {
         port: PORT,
         nodeEnv: process.env.NODE_ENV,
-        startTime: time
+        startTime: time,
+        timestamp: new Date().toISOString()
       });
     });
   } catch (error) {
-    logger.error('Failed to start server', error);
+    logger.error('Failed to start server', error, {
+      timestamp: new Date().toISOString()
+    });
     process.exit(1);
   }
 })();
+
+// Add types for request ID
+declare global {
+  namespace Express {
+    interface Request {
+      requestId?: string;
+    }
+  }
+}
