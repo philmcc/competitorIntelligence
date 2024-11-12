@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { useSubscription } from "../hooks/use-subscription";
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "../hooks/use-user";
+import { loadStripe } from '@stripe/stripe-js';
 
 const PLANS = {
   FREE: {
@@ -16,7 +17,7 @@ const PLANS = {
   PRO: {
     name: "Pro Plan",
     price: "$49/month",
-    priceId: "price_pro", // Replace with actual Stripe price ID
+    priceId: "price_1OqXYRKJ8HgDX4Y6bG7pN3Dq", // Standard price ID format
     features: [
       "Track up to 15 competitors",
       "Access to all modules",
@@ -26,39 +27,82 @@ const PLANS = {
   }
 };
 
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+
 export default function SubscriptionManagement() {
   const { subscription, subscribe, cancelSubscription } = useSubscription();
-  const { user } = useUser();
+  const { user, mutate: mutateUser } = useUser();
   const { toast } = useToast();
 
   const handleSubscribe = async () => {
-    const result = await subscribe(PLANS.PRO.priceId);
-    if (result.ok) {
-      toast({
-        title: "Success",
-        description: "Your subscription has been created. You will be redirected to complete the payment.",
+    try {
+      if (!stripePromise) {
+        throw new Error("Stripe is not properly configured");
+      }
+
+      const result = await subscribe(PLANS.PRO.priceId);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+
+      const { clientSecret } = result.data;
+      const stripe = await stripePromise;
+      
+      if (!stripe) {
+        throw new Error("Failed to initialize Stripe");
+      }
+
+      const { error: paymentError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: {
+            token: 'tok_visa' // Test token, will be replaced with actual card details in production
+          }
+        }
       });
-      // Redirect to Stripe checkout or handle client-side payment
-    } else {
+      
+      if (paymentError) {
+        throw new Error(paymentError.message || "Payment failed");
+      }
+
+      if (paymentIntent?.status === 'succeeded') {
+        toast({
+          title: "Success",
+          description: "Your subscription has been activated successfully!",
+        });
+        // Refresh user data to update the plan
+        mutateUser();
+      } else {
+        throw new Error("Payment was not completed successfully");
+      }
+    } catch (error) {
+      console.error('Subscription error:', error);
       toast({
-        title: "Error",
-        description: result.error,
+        title: "Subscription Failed",
+        description: error instanceof Error ? error.message : "Failed to process subscription. Please try again.",
         variant: "destructive",
       });
     }
   };
 
   const handleCancel = async () => {
-    const result = await cancelSubscription();
-    if (result.ok) {
+    try {
+      const result = await cancelSubscription();
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+
       toast({
         title: "Subscription Cancelled",
         description: "Your subscription will remain active until the end of the current billing period.",
       });
-    } else {
+
+      // Refresh user data to update the plan
+      mutateUser();
+    } catch (error) {
+      console.error('Cancellation error:', error);
       toast({
-        title: "Error",
-        description: result.error,
+        title: "Cancellation Failed",
+        description: error instanceof Error ? error.message : "Failed to cancel subscription. Please try again.",
         variant: "destructive",
       });
     }

@@ -320,4 +320,29 @@ export function registerRoutes(app: Express) {
       message: "Competitor deleted successfully"
     });
   }));
+
+  // Subscription routes
+  app.post("/api/subscriptions/create", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const { priceId } = req.body;
+
+    if (!priceId) {
+      throw new APIError(400, "Price ID is required");
+    }
+
+    const result = await createSubscription(req.user!.id, priceId);
+  
+    res.json({
+      status: "success",
+      data: result
+    });
+  }));
+
+  app.post("/api/subscriptions/cancel", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const result = await cancelSubscription(req.user!.id);
+  
+    res.json({
+      status: "success",
+      data: result
+    });
+  }));
 }
