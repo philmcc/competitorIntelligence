@@ -40,40 +40,54 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
     }
 
     console.log('Sending webhook request to:', webhookUrl);
-    console.log('Request payload:', { website_url: websiteUrl });
 
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({ website_url: websiteUrl })
     });
 
-    // Log response details for debugging
     console.log('Response status:', response.status);
     console.log('Response headers:', Object.fromEntries(response.headers));
+
+    // Check content type before reading the response
+    const contentType = response.headers.get('content-type');
+    console.log('Content-Type:', contentType);
 
     const rawResponse = await response.text();
     console.log('Raw response:', rawResponse);
 
     let responseData;
     try {
+      // Only try to parse if we have content
+      if (!rawResponse.trim()) {
+        throw new Error("Empty response from webhook");
+      }
       responseData = JSON.parse(rawResponse);
       console.log('Parsed response:', JSON.stringify(responseData, null, 2));
     } catch (error) {
       console.error('JSON parse error:', error);
-      throw new APIError(400, "Invalid JSON response from webhook");
+      throw new APIError(400, `Invalid JSON response from webhook: ${error.message}`);
     }
 
-    if (!responseData || !responseData.competitors || !Array.isArray(responseData.competitors)) {
-      console.error('Invalid response structure:', responseData);
-      throw new APIError(400, "Invalid response format from webhook");
+    // Validate the response structure
+    if (!responseData || typeof responseData !== 'object') {
+      throw new APIError(400, "Invalid response format: expected JSON object");
+    }
+
+    if (!Array.isArray(responseData.competitors)) {
+      // Check if the response itself is an array
+      if (Array.isArray(responseData)) {
+        responseData = { competitors: responseData };
+      } else {
+        throw new APIError(400, "Invalid response format: missing competitors array");
+      }
     }
 
     return responseData.competitors
-      .filter(comp => comp && comp.url)
+      .filter(comp => comp && typeof comp === 'object' && comp.url)
       .map(comp => ({
         name: new URL(comp.url).hostname.replace(/^www\./, ''),
         website: comp.url,
