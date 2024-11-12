@@ -156,10 +156,10 @@ export default function DiscoverCompetitorsDialog() {
       <DialogTrigger asChild>
         <Button variant="outline">Discover Competitors</Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl" aria-describedby="discover-competitors-description">
         <DialogHeader>
           <DialogTitle>Discover Competitors</DialogTitle>
-          <DialogDescription>
+          <DialogDescription id="discover-competitors-description">
             {user?.websiteUrl 
               ? "Using your website URL to discover potential competitors in your industry."
               : "Enter your website URL to discover potential competitors in your industry."}

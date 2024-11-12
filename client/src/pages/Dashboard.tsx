@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { mutate } from "swr";
@@ -20,9 +20,16 @@ export default function Dashboard() {
   const { user, isLoading: userLoading } = useUser();
   const { competitors, meta, isLoading: competitorsLoading } = useCompetitors();
   const { toast } = useToast();
-  const [websiteUrl, setWebsiteUrl] = useState(user?.websiteUrl || "");
+  const [websiteUrl, setWebsiteUrl] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Update local state when user data changes
+  useEffect(() => {
+    if (user?.websiteUrl) {
+      setWebsiteUrl(user.websiteUrl);
+    }
+  }, [user?.websiteUrl]);
 
   useEffect(() => {
     if (!userLoading && !user) {
@@ -30,7 +37,7 @@ export default function Dashboard() {
     }
   }, [user, userLoading, setLocation]);
 
-  const handleSaveWebsite = async () => {
+  const handleSaveWebsite = useCallback(async () => {
     if (!websiteUrl) {
       toast({
         title: "Error",
@@ -64,6 +71,8 @@ export default function Dashboard() {
       }
 
       setIsEditing(false);
+      
+      // Mutate both user and competitors data to ensure consistency
       await Promise.all([
         mutate("/api/user"),
         mutate("/api/competitors")
@@ -75,6 +84,7 @@ export default function Dashboard() {
       });
     } catch (error) {
       console.error('Website URL update error:', error);
+      setWebsiteUrl(user?.websiteUrl || ""); // Reset to original value on error
       toast({
         title: "Error updating website URL",
         description: error instanceof Error ? error.message : "An unexpected error occurred",
@@ -83,10 +93,21 @@ export default function Dashboard() {
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [websiteUrl, user?.websiteUrl, toast]);
+
+  const handleCancel = useCallback(() => {
+    setIsEditing(false);
+    setWebsiteUrl(user?.websiteUrl || "");
+  }, [user?.websiteUrl]);
 
   if (userLoading || competitorsLoading) {
-    return <div>Loading...</div>;
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      </Layout>
+    );
   }
 
   const showUpgradeAlert = meta && meta.remaining === 0 && user?.plan === "free";
@@ -167,10 +188,7 @@ export default function Dashboard() {
                       <Button 
                         type="button" 
                         variant="outline" 
-                        onClick={() => {
-                          setIsEditing(false);
-                          setWebsiteUrl(user?.websiteUrl || "");
-                        }}
+                        onClick={handleCancel}
                         disabled={isSaving}
                       >
                         Cancel
