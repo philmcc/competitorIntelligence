@@ -30,7 +30,6 @@ const PLANS = {
   }
 };
 
-// Initialize Stripe with proper error handling
 if (!import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
   throw new Error('Stripe public key is not configured');
 }
@@ -71,7 +70,7 @@ function PaymentForm({ clientSecret, onSuccess, onError }: {
       const { error, paymentIntent } = await stripe.confirmPayment({
         elements,
         confirmParams: {
-          return_url: window.location.origin,
+          return_url: `${window.location.origin}/dashboard`,
         },
         redirect: 'if_required',
       });
@@ -152,13 +151,23 @@ export default function SubscriptionManagement() {
     }
   };
 
-  const handlePaymentSuccess = () => {
-    toast({
-      title: "Success",
-      description: "Your subscription has been activated successfully!",
-    });
-    mutateUser();
-    setClientSecret(null);
+  const handlePaymentSuccess = async () => {
+    try {
+      await mutateUser();
+      toast({
+        title: "Success",
+        description: "Your subscription has been activated successfully!",
+      });
+    } catch (error) {
+      console.error('Failed to update user data:', error);
+      toast({
+        title: "Warning",
+        description: "Subscription activated but failed to refresh user data. Please refresh the page.",
+        variant: "destructive",
+      });
+    } finally {
+      setClientSecret(null);
+    }
   };
 
   const handlePaymentError = (error: Error) => {
@@ -183,7 +192,17 @@ export default function SubscriptionManagement() {
         title: "Subscription Cancelled",
         description: "Your subscription will remain active until the end of the current billing period.",
       });
-      mutateUser();
+
+      try {
+        await mutateUser();
+      } catch (error) {
+        console.error('Failed to update user data:', error);
+        toast({
+          title: "Warning",
+          description: "Subscription cancelled but failed to refresh user data. Please refresh the page.",
+          variant: "destructive",
+        });
+      }
     } catch (error) {
       console.error('Cancellation error:', error);
       toast({
@@ -263,7 +282,12 @@ export default function SubscriptionManagement() {
           </ul>
           {clientSecret && (
             <div className="mt-4">
-              <Elements stripe={stripePromise} options={{ clientSecret }}>
+              <Elements stripe={stripePromise} options={{ 
+                clientSecret,
+                appearance: {
+                  theme: 'stripe'
+                }
+              }}>
                 <PaymentForm
                   clientSecret={clientSecret}
                   onSuccess={handlePaymentSuccess}

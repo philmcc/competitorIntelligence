@@ -1,30 +1,44 @@
 import useSWR from "swr";
 import type { User, InsertUser } from "db/schema";
 
+type ApiResponse<T> = {
+  status: "success" | "error";
+  data?: T;
+  message?: string;
+};
+
 export function useUser() {
-  const { data, error, mutate } = useSWR<User, Error>("/api/user", {
+  const { data, error, mutate } = useSWR<ApiResponse<User>>('/api/user', {
     revalidateOnFocus: false,
     revalidateOnReconnect: false,
     refreshInterval: 0
   });
 
   return {
-    user: data,
+    user: data?.data,
     isLoading: !error && !data,
     error,
+    mutate: async () => {
+      try {
+        await mutate();
+      } catch (error) {
+        console.error('Failed to update user data:', error);
+        throw error;
+      }
+    },
     login: async (user: InsertUser) => {
       const res = await handleRequest("/login", "POST", user);
-      mutate();
+      await mutate();
       return res;
     },
     logout: async () => {
       const res = await handleRequest("/logout", "POST");
-      mutate(undefined);
+      await mutate(undefined);
       return res;
     },
     register: async (user: InsertUser) => {
       const res = await handleRequest("/register", "POST", user);
-      mutate();
+      await mutate();
       return res;
     },
   };
