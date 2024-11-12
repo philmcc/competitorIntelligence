@@ -19,7 +19,7 @@ const PLANS = {
   PRO: {
     name: "Pro Plan",
     price: "$49/month",
-    priceId: "price_1OqXYRKJ8HgDX4Y6bG7pN3Dq",
+    priceId: "price_1QKMCnF9UgNcgnl1JU0CluL0",
     features: [
       "Track up to 15 competitors",
       "Access to all modules",

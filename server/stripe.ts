@@ -11,7 +11,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 const PLANS = {
   PRO: {
     name: "Pro Plan",
-    priceId: "price_1OqXYRKJ8HgDX4Y6bG7pN3Dq",
+    priceId: "price_1QKMCnF9UgNcgnl1JU0CluL0",
     features: ["Up to 15 competitors", "All research modules"]
   }
 };
