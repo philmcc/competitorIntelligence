@@ -126,19 +126,24 @@ const requireAuth = (req: Request, res: Response, next: NextFunction) => {
   next();
 };
 
-// Helper function to check competitor limits
-async function checkCompetitorLimit(userId: number): Promise<void> {
+// Helper function to check selected competitor limits
+async function checkSelectedCompetitorLimit(userId: number): Promise<void> {
   const [user] = await db.select().from(users).where(eq(users.id, userId));
-  const competitorCount = await db
+  const selectedCount = await db
     .select({ count: sql<number>`count(*)` })
     .from(competitors)
-    .where(eq(competitors.userId, userId));
+    .where(
+      and(
+        eq(competitors.userId, userId),
+        eq(competitors.isSelected, true)
+      )
+    );
 
   const limit = PLAN_LIMITS[user.plan as keyof typeof PLAN_LIMITS];
-  if (competitorCount[0].count >= limit) {
+  if (selectedCount[0].count >= limit) {
     throw new APIError(
       403,
-      `You have reached the maximum number of competitors (${limit}) for your ${user.plan} plan. Please upgrade to add more competitors.`
+      `You have reached the maximum number of selected competitors (${limit}) for your ${user.plan} plan. You can still add competitors to your available list, but please upgrade to select more competitors for tracking.`
     );
   }
 }
@@ -244,7 +249,10 @@ export function registerRoutes(app: Express) {
       throw new APIError(400, "Validation failed", validation.error.errors);
     }
 
-    await checkCompetitorLimit(req.user!.id);
+    // Only check limit if the competitor is being added as selected
+    if (validation.data.isSelected) {
+      await checkSelectedCompetitorLimit(req.user!.id);
+    }
 
     const [competitor] = await db
       .insert(competitors)
@@ -276,29 +284,9 @@ export function registerRoutes(app: Express) {
       throw new APIError(404, "Competitor not found");
     }
 
+    // Check limit only when changing isSelected from false to true
     if (validation.data.isSelected && !existingCompetitor.isSelected) {
-      const selectedCount = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(competitors)
-        .where(
-          and(
-            eq(competitors.userId, req.user!.id),
-            eq(competitors.isSelected, true)
-          )
-        );
-
-      const [user] = await db
-        .select()
-        .from(users)
-        .where(eq(users.id, req.user!.id));
-
-      const limit = PLAN_LIMITS[user.plan as keyof typeof PLAN_LIMITS];
-      if (selectedCount[0].count >= limit) {
-        throw new APIError(
-          403,
-          `You have reached the maximum number of selected competitors (${limit}) for your ${user.plan} plan. Please upgrade to select more competitors.`
-        );
-      }
+      await checkSelectedCompetitorLimit(req.user!.id);
     }
 
     const [competitor] = await db

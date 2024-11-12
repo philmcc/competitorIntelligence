@@ -115,17 +115,29 @@ export default function DiscoverCompetitorsDialog() {
   const handleAddCompetitor = async (competitor: DiscoveredCompetitor) => {
     setAddingCompetitor(competitor.website);
     try {
-      const result = await addCompetitor(competitor);
+      // By default, add competitors as unselected
+      const result = await addCompetitor({ ...competitor, isSelected: false });
       if (result.ok) {
         toast({ 
           title: "Competitor added successfully",
-          description: `${competitor.name} has been added to your competitors list.`
+          description: `${competitor.name} has been added to your available competitors list.`
         });
         setDiscoveredCompetitors(prev => 
           prev.filter(c => c.website !== competitor.website)
         );
       } else {
-        throw new Error(result.message);
+        // Check if the error is about selected competitors limit
+        if (result.message?.includes("maximum number of selected competitors")) {
+          toast({
+            title: "Added as available competitor",
+            description: "The competitor was added to your available list. You can select it for tracking later when you have available slots.",
+          });
+          setDiscoveredCompetitors(prev => 
+            prev.filter(c => c.website !== competitor.website)
+          );
+        } else {
+          throw new Error(result.message);
+        }
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to add competitor";
