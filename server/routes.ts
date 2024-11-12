@@ -154,6 +154,11 @@ export function registerRoutes(app: Express) {
 
     const result = await createSubscription(req.user!.id, priceId);
 
+    // Update user's plan to pro after successful subscription
+    await db.update(users)
+      .set({ plan: 'pro' })
+      .where(eq(users.id, req.user!.id));
+
     res.json({
       status: "success",
       data: result

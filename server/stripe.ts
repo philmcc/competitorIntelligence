@@ -87,7 +87,7 @@ export async function createSubscription(userId: number, priceId: string) {
     });
 
     try {
-      // Insert subscription record without specifying ID (let it auto-increment)
+      // Insert subscription record
       await db.insert(subscriptions).values({
         userId,
         stripeSubscriptionId: subscription.id,
@@ -97,6 +97,17 @@ export async function createSubscription(userId: number, priceId: string) {
         currentPeriodEnd: new Date(subscription.current_period_end * 1000),
         cancelAtPeriodEnd: false
       });
+
+      // After successful subscription creation, update user's plan to pro
+      await db.update(users)
+        .set({ plan: 'pro' })
+        .where(eq(users.id, userId));
+
+      // Update subscription status to active
+      await db.update(subscriptions)
+        .set({ status: 'active' })
+        .where(eq(subscriptions.userId, userId));
+
     } catch (dbError) {
       console.error('Database insertion error:', dbError);
       // Attempt to clean up the Stripe subscription if database insert fails
