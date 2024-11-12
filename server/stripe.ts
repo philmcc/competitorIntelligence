@@ -5,13 +5,13 @@ import { eq } from "drizzle-orm";
 import { APIError } from "./errors";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-10-28.acacia"
+  apiVersion: "2023-10-16"
 });
 
 const PLANS = {
   PRO: {
     name: "Pro Plan",
-    priceId: "price_1OqXYRKJ8HgDX4Y6bG7pN3Dq", // Standard price ID format
+    priceId: "price_1OqXYRKJ8HgDX4Y6bG7pN3Dq",
     features: ["Up to 15 competitors", "All research modules"]
   }
 };
@@ -90,7 +90,7 @@ export async function cancelSubscription(userId: number) {
     }
 
     await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
-      cancel_at_period_end: true,
+      cancel_at_period_end: true
     });
 
     await db.update(subscriptions)

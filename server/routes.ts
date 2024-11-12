@@ -3,7 +3,7 @@ import { setupAuth } from "./auth";
 import { db } from "db";
 import { competitors, reports, subscriptions, users } from "db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { createCustomer, createSubscription, cancelSubscription, handleWebhook } from "./stripe";
+import { createCustomer, createSubscription, cancelSubscription } from "./stripe";
 import Stripe from "stripe";
 import fetch from "node-fetch";
 import { z } from "zod";
@@ -39,8 +39,6 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       throw new APIError(500, "Make.com webhook URL is not configured");
     }
 
-    console.log('Sending webhook request to:', webhookUrl);
-
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 
@@ -49,36 +47,19 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       body: JSON.stringify({ website_url: websiteUrl })
     });
 
-    console.log('Response status:', response.status);
-    console.log('Response headers:', Object.fromEntries(response.headers));
-
-    // Check content type before reading the response
-    const contentType = response.headers.get('content-type');
-    console.log('Content-Type:', contentType);
-
     const rawResponse = await response.text();
-    console.log('Raw response:', rawResponse);
-
-    let responseData;
-    try {
-      // Only try to parse if we have content
-      if (!rawResponse.trim()) {
-        throw new Error("Empty response from webhook");
-      }
-      responseData = JSON.parse(rawResponse);
-      console.log('Parsed response:', JSON.stringify(responseData, null, 2));
-    } catch (error) {
-      console.error('JSON parse error:', error);
-      throw new APIError(400, `Invalid JSON response from webhook: ${error.message}`);
+    
+    if (!rawResponse.trim()) {
+      throw new Error("Empty response from webhook");
     }
+    
+    const responseData = JSON.parse(rawResponse);
 
-    // Validate the response structure
     if (!responseData || typeof responseData !== 'object') {
       throw new APIError(400, "Invalid response format: expected JSON object");
     }
 
     if (!Array.isArray(responseData.competitors)) {
-      // Check if the response itself is an array
       if (Array.isArray(responseData)) {
         responseData = { competitors: responseData };
       } else {
@@ -143,7 +124,7 @@ async function checkSelectedCompetitorLimit(userId: number): Promise<void> {
   if (selectedCount[0].count >= limit) {
     throw new APIError(
       403,
-      `You have reached the maximum number of selected competitors (${limit}) for your ${user.plan} plan. You can still add competitors to your available list, but please upgrade to select more competitors for tracking.`
+      `You have reached the maximum number of selected competitors (${limit}) for your ${user.plan} plan. Please upgrade to select more competitors.`
     );
   }
 }
@@ -152,7 +133,43 @@ export function registerRoutes(app: Express) {
   setupAuth(app);
   app.use('/api', setJsonContentType);
 
-  // Website URL update endpoint with improved error handling
+  // Subscription routes
+  app.get("/api/subscriptions/status", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const [subscription] = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.userId, req.user!.id));
+    res.json({
+      status: "success",
+      data: subscription
+    });
+  }));
+
+  app.post("/api/subscriptions/create", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const { priceId } = req.body;
+
+    if (!priceId) {
+      throw new APIError(400, "Price ID is required");
+    }
+
+    const result = await createSubscription(req.user!.id, priceId);
+
+    res.json({
+      status: "success",
+      data: result
+    });
+  }));
+
+  app.post("/api/subscriptions/cancel", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const result = await cancelSubscription(req.user!.id);
+
+    res.json({
+      status: "success",
+      data: result
+    });
+  }));
+
+  // Website URL update endpoint
   app.put("/api/user/website", requireAuth, asyncHandler(async (req: Request, res: Response) => {
     const validation = websiteUrlSchema.safeParse(req.body);
 
@@ -161,19 +178,16 @@ export function registerRoutes(app: Express) {
     }
 
     try {
-      // Start a transaction to ensure data consistency
       const [updatedUser] = await db
         .update(users)
         .set({ websiteUrl: validation.data.websiteUrl })
         .where(eq(users.id, req.user!.id))
         .returning();
 
-      // Update session synchronously
       if (req.user) {
         req.user.websiteUrl = validation.data.websiteUrl;
       }
 
-      // Force session save
       req.session.save((err) => {
         if (err) {
           console.error('Session save error:', err);
@@ -191,7 +205,7 @@ export function registerRoutes(app: Express) {
     }
   }));
 
-  // Competitor discovery endpoint with enhanced validation
+  // Competitor routes
   app.post("/api/competitors/discover", requireAuth, asyncHandler(async (req: Request, res: Response) => {
     const validation = websiteUrlSchema.safeParse(req.body);
 
@@ -201,8 +215,6 @@ export function registerRoutes(app: Express) {
 
     try {
       const discoveredCompetitors = await discoverCompetitors(validation.data.websiteUrl);
-      
-      // Return in standard format matching our API convention
       res.json({
         status: "success",
         data: discoveredCompetitors
@@ -216,7 +228,6 @@ export function registerRoutes(app: Express) {
     }
   }));
 
-  // Competitors management routes
   app.get("/api/competitors", requireAuth, asyncHandler(async (req: Request, res: Response) => {
     const userCompetitors = await db
       .select()
@@ -249,7 +260,6 @@ export function registerRoutes(app: Express) {
       throw new APIError(400, "Validation failed", validation.error.errors);
     }
 
-    // Only check limit if the competitor is being added as selected
     if (validation.data.isSelected) {
       await checkSelectedCompetitorLimit(req.user!.id);
     }
@@ -284,7 +294,6 @@ export function registerRoutes(app: Express) {
       throw new APIError(404, "Competitor not found");
     }
 
-    // Check limit only when changing isSelected from false to true
     if (validation.data.isSelected && !existingCompetitor.isSelected) {
       await checkSelectedCompetitorLimit(req.user!.id);
     }
@@ -318,31 +327,6 @@ export function registerRoutes(app: Express) {
     res.json({
       status: "success",
       message: "Competitor deleted successfully"
-    });
-  }));
-
-  // Subscription routes
-  app.post("/api/subscriptions/create", requireAuth, asyncHandler(async (req: Request, res: Response) => {
-    const { priceId } = req.body;
-
-    if (!priceId) {
-      throw new APIError(400, "Price ID is required");
-    }
-
-    const result = await createSubscription(req.user!.id, priceId);
-  
-    res.json({
-      status: "success",
-      data: result
-    });
-  }));
-
-  app.post("/api/subscriptions/cancel", requireAuth, asyncHandler(async (req: Request, res: Response) => {
-    const result = await cancelSubscription(req.user!.id);
-  
-    res.json({
-      status: "success",
-      data: result
     });
   }));
 }

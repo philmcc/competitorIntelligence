@@ -17,7 +17,7 @@ const PLANS = {
   PRO: {
     name: "Pro Plan",
     price: "$49/month",
-    priceId: "price_1OqXYRKJ8HgDX4Y6bG7pN3Dq", // Standard price ID format
+    priceId: "price_1OqXYRKJ8HgDX4Y6bG7pN3Dq",
     features: [
       "Track up to 15 competitors",
       "Access to all modules",
@@ -27,6 +27,7 @@ const PLANS = {
   }
 };
 
+// Initialize Stripe with public key from environment
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
 
 export default function SubscriptionManagement() {
@@ -37,30 +38,33 @@ export default function SubscriptionManagement() {
   const handleSubscribe = async () => {
     try {
       if (!stripePromise) {
-        throw new Error("Stripe is not properly configured");
+        throw new Error("Stripe is not properly configured - Missing public key");
       }
 
-      const result = await subscribe(PLANS.PRO.priceId);
-      if (!result.ok) {
-        throw new Error(result.error);
+      const response = await fetch('/api/subscriptions/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ priceId: PLANS.PRO.priceId }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to create subscription');
       }
 
-      const { clientSecret } = result.data;
+      const { data: { clientSecret } } = await response.json();
       const stripe = await stripePromise;
       
       if (!stripe) {
         throw new Error("Failed to initialize Stripe");
       }
 
-      const { error: paymentError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-        payment_method: {
-          card: {
-            token: 'tok_visa' // Test token, will be replaced with actual card details in production
-          }
-        }
-      });
+      const { error: paymentError, paymentIntent } = await stripe.confirmCardPayment(clientSecret);
       
       if (paymentError) {
+        console.error('Payment error:', paymentError);
         throw new Error(paymentError.message || "Payment failed");
       }
 
@@ -69,7 +73,6 @@ export default function SubscriptionManagement() {
           title: "Success",
           description: "Your subscription has been activated successfully!",
         });
-        // Refresh user data to update the plan
         mutateUser();
       } else {
         throw new Error("Payment was not completed successfully");
@@ -78,7 +81,7 @@ export default function SubscriptionManagement() {
       console.error('Subscription error:', error);
       toast({
         title: "Subscription Failed",
-        description: error instanceof Error ? error.message : "Failed to process subscription. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to process subscription",
         variant: "destructive",
       });
     }
@@ -86,23 +89,28 @@ export default function SubscriptionManagement() {
 
   const handleCancel = async () => {
     try {
-      const result = await cancelSubscription();
-      if (!result.ok) {
-        throw new Error(result.error);
+      const response = await fetch('/api/subscriptions/cancel', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to cancel subscription');
       }
 
       toast({
         title: "Subscription Cancelled",
         description: "Your subscription will remain active until the end of the current billing period.",
       });
-
-      // Refresh user data to update the plan
       mutateUser();
     } catch (error) {
       console.error('Cancellation error:', error);
       toast({
         title: "Cancellation Failed",
-        description: error instanceof Error ? error.message : "Failed to cancel subscription. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to cancel subscription",
         variant: "destructive",
       });
     }
