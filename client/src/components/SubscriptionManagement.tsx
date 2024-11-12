@@ -4,6 +4,8 @@ import { useSubscription } from "../hooks/use-subscription";
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "../hooks/use-user";
 import { loadStripe } from '@stripe/stripe-js';
+import { useState } from "react";
+import { Loader2 } from "lucide-react";
 
 const PLANS = {
   FREE: {
@@ -30,13 +32,29 @@ const PLANS = {
 // Initialize Stripe with public key from environment
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
 
+interface SubscriptionError {
+  message: string;
+  errors?: Record<string, string[]>;
+}
+
+interface SubscriptionResponse {
+  status: string;
+  data: {
+    subscriptionId: string;
+    clientSecret: string;
+  };
+}
+
 export default function SubscriptionManagement() {
   const { subscription, subscribe, cancelSubscription } = useSubscription();
   const { user, mutate: mutateUser } = useUser();
   const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSubscribe = async () => {
     try {
+      setIsLoading(true);
+
       if (!stripePromise) {
         throw new Error("Stripe is not properly configured - Missing public key");
       }
@@ -49,12 +67,14 @@ export default function SubscriptionManagement() {
         body: JSON.stringify({ priceId: PLANS.PRO.priceId }),
       });
 
+      const data: SubscriptionResponse | SubscriptionError = await response.json();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to create subscription');
+        const error = data as SubscriptionError;
+        throw new Error(error.message || 'Failed to create subscription');
       }
 
-      const { data: { clientSecret } } = await response.json();
+      const { data: { clientSecret } } = data as SubscriptionResponse;
       const stripe = await stripePromise;
       
       if (!stripe) {
@@ -84,11 +104,14 @@ export default function SubscriptionManagement() {
         description: error instanceof Error ? error.message : "Failed to process subscription",
         variant: "destructive",
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleCancel = async () => {
     try {
+      setIsLoading(true);
       const response = await fetch('/api/subscriptions/cancel', {
         method: 'POST',
         headers: {
@@ -113,6 +136,8 @@ export default function SubscriptionManagement() {
         description: error instanceof Error ? error.message : "Failed to cancel subscription",
         variant: "destructive",
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -184,12 +209,33 @@ export default function SubscriptionManagement() {
         </CardContent>
         <CardFooter>
           {isPro ? (
-            <Button variant="destructive" onClick={handleCancel}>
-              Cancel Subscription
+            <Button 
+              variant="destructive" 
+              onClick={handleCancel}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Cancelling...
+                </>
+              ) : (
+                "Cancel Subscription"
+              )}
             </Button>
           ) : (
-            <Button onClick={handleSubscribe}>
-              Upgrade to Pro
+            <Button 
+              onClick={handleSubscribe}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                "Upgrade to Pro"
+              )}
             </Button>
           )}
         </CardFooter>

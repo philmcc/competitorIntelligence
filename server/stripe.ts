@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { APIError } from "./errors";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2023-10-16"
+  apiVersion: "2024-10-28.acacia"
 });
 
 const PLANS = {
@@ -24,13 +24,26 @@ export async function createCustomer(userId: number, email: string) {
       .where(eq(users.id, userId));
     return customer;
   } catch (error) {
-    console.error('Error creating Stripe customer:', error);
+    console.error('Stripe customer creation error:', error);
+    if (error instanceof Stripe.errors.StripeError) {
+      throw new APIError(error.statusCode || 500, error.message);
+    }
     throw new APIError(500, "Failed to create customer");
   }
 }
 
 export async function createSubscription(userId: number, priceId: string) {
   try {
+    // Validate price ID format
+    if (!priceId.startsWith('price_')) {
+      throw new APIError(400, "Invalid price ID format");
+    }
+
+    // Validate price ID matches our plans
+    if (!Object.values(PLANS).some(plan => plan.priceId === priceId)) {
+      throw new APIError(400, "Invalid price ID");
+    }
+
     const [user] = await db.select().from(users).where(eq(users.id, userId));
     
     if (!user) {
@@ -42,6 +55,14 @@ export async function createSubscription(userId: number, priceId: string) {
     if (!customerId) {
       const customer = await createCustomer(userId, user.email);
       customerId = customer.id;
+    }
+
+    // Verify price exists in Stripe
+    try {
+      await stripe.prices.retrieve(priceId);
+    } catch (error) {
+      console.error('Price verification error:', error);
+      throw new APIError(400, "Invalid price ID - not found in Stripe");
     }
 
     const subscription = await stripe.subscriptions.create({
@@ -72,8 +93,13 @@ export async function createSubscription(userId: number, priceId: string) {
       clientSecret: paymentIntent.client_secret
     };
   } catch (error) {
-    console.error('Error creating subscription:', error);
-    if (error instanceof APIError) throw error;
+    console.error('Stripe subscription error details:', error);
+    if (error instanceof Stripe.errors.StripeError) {
+      throw new APIError(error.statusCode || 500, error.message);
+    }
+    if (error instanceof APIError) {
+      throw error;
+    }
     throw new APIError(500, "Failed to create subscription");
   }
 }
@@ -103,8 +129,13 @@ export async function cancelSubscription(userId: number) {
 
     return { message: "Subscription cancelled successfully" };
   } catch (error) {
-    console.error('Error cancelling subscription:', error);
-    if (error instanceof APIError) throw error;
+    console.error('Stripe cancellation error details:', error);
+    if (error instanceof Stripe.errors.StripeError) {
+      throw new APIError(error.statusCode || 500, error.message);
+    }
+    if (error instanceof APIError) {
+      throw error;
+    }
     throw new APIError(500, "Failed to cancel subscription");
   }
 }
