@@ -86,14 +86,23 @@ export async function createSubscription(userId: number, priceId: string) {
       expand: ['latest_invoice.payment_intent']
     });
 
-    await db.insert(subscriptions).values({
-      userId,
-      stripeSubscriptionId: subscription.id,
-      status: subscription.status,
-      planType: 'pro',
-      currentPeriodStart: new Date(subscription.current_period_start * 1000),
-      currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-    });
+    try {
+      // Insert subscription record without specifying ID (let it auto-increment)
+      await db.insert(subscriptions).values({
+        userId,
+        stripeSubscriptionId: subscription.id,
+        status: subscription.status,
+        planType: 'pro',
+        currentPeriodStart: new Date(subscription.current_period_start * 1000),
+        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+        cancelAtPeriodEnd: false
+      });
+    } catch (dbError) {
+      console.error('Database insertion error:', dbError);
+      // Attempt to clean up the Stripe subscription if database insert fails
+      await stripe.subscriptions.del(subscription.id);
+      throw new APIError(500, "Failed to create subscription record");
+    }
 
     const invoice = subscription.latest_invoice as Stripe.Invoice;
     const paymentIntent = invoice.payment_intent as Stripe.PaymentIntent;
