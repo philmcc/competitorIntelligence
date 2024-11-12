@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { useSubscription } from "../hooks/use-subscription";
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "../hooks/use-user";
@@ -7,6 +8,7 @@ import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const PLANS = {
   FREE: {
@@ -117,6 +119,7 @@ export default function SubscriptionManagement() {
   const { user, mutate: mutateUser } = useUser();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
 
   const handleSubscribe = async () => {
@@ -152,6 +155,7 @@ export default function SubscriptionManagement() {
   };
 
   const handlePaymentSuccess = async () => {
+    setIsUpdating(true);
     try {
       await mutateUser();
       toast({
@@ -162,10 +166,11 @@ export default function SubscriptionManagement() {
       console.error('Failed to update user data:', error);
       toast({
         title: "Warning",
-        description: "Subscription activated but failed to refresh user data. Please refresh the page.",
+        description: "Please refresh the page to see your updated subscription status.",
         variant: "destructive",
       });
     } finally {
+      setIsUpdating(false);
       setClientSecret(null);
     }
   };
@@ -219,9 +224,12 @@ export default function SubscriptionManagement() {
 
   return (
     <div className="grid gap-8 md:grid-cols-2">
-      <Card>
+      <Card className={cn(isPro ? 'opacity-50' : '')}>
         <CardHeader>
-          <CardTitle>{PLANS.FREE.name}</CardTitle>
+          <CardTitle className="flex items-center justify-between">
+            {PLANS.FREE.name}
+            {!isPro && <Badge>Current Plan</Badge>}
+          </CardTitle>
           <CardDescription>For individuals and small teams</CardDescription>
         </CardHeader>
         <CardContent>
@@ -252,9 +260,12 @@ export default function SubscriptionManagement() {
         </CardFooter>
       </Card>
 
-      <Card>
+      <Card className={cn(isPro ? 'border-primary' : '')}>
         <CardHeader>
-          <CardTitle>{PLANS.PRO.name}</CardTitle>
+          <CardTitle className="flex items-center justify-between">
+            {PLANS.PRO.name}
+            {isPro && <Badge variant="default">Current Plan</Badge>}
+          </CardTitle>
           <CardDescription>For businesses serious about competitor tracking</CardDescription>
         </CardHeader>
         <CardContent>
@@ -302,12 +313,12 @@ export default function SubscriptionManagement() {
             <Button 
               variant="destructive" 
               onClick={handleCancel}
-              disabled={isLoading}
+              disabled={isLoading || isUpdating}
             >
-              {isLoading ? (
+              {isLoading || isUpdating ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Cancelling...
+                  {isUpdating ? 'Updating...' : 'Cancelling...'}
                 </>
               ) : (
                 "Cancel Subscription"
@@ -317,12 +328,12 @@ export default function SubscriptionManagement() {
             !clientSecret && (
               <Button 
                 onClick={handleSubscribe}
-                disabled={isLoading}
+                disabled={isLoading || isUpdating}
               >
-                {isLoading ? (
+                {isLoading || isUpdating ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing...
+                    {isUpdating ? 'Updating...' : 'Processing...'}
                   </>
                 ) : (
                   "Upgrade to Pro"
