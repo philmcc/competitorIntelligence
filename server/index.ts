@@ -6,6 +6,7 @@ import cors from "cors";
 import { db } from "db";
 import { sql } from "drizzle-orm";
 import { APIError } from "./errors";
+import { logger } from "./utils/logger";
 
 const app = express();
 
@@ -31,12 +32,22 @@ async function waitForDatabase() {
   for (let i = 0; i < MAX_RETRIES; i++) {
     try {
       await db.execute(sql`SELECT 1`);
-      console.log('Database connection established successfully');
+      logger.info('Database connection established successfully', {
+        attempt: i + 1,
+        totalAttempts: MAX_RETRIES
+      });
       return true;
     } catch (error) {
-      console.error(`Database connection attempt ${i + 1} failed:`, error);
+      logger.error(`Database connection attempt ${i + 1} failed`, error, {
+        attempt: i + 1,
+        totalAttempts: MAX_RETRIES,
+        retryDelay: RETRY_DELAY
+      });
       if (i < MAX_RETRIES - 1) {
-        console.log(`Retrying in ${RETRY_DELAY/1000} seconds...`);
+        logger.info(`Retrying database connection`, {
+          nextAttempt: i + 2,
+          delayMs: RETRY_DELAY
+        });
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
       }
     }
@@ -44,13 +55,36 @@ async function waitForDatabase() {
   return false;
 }
 
+// Request logging middleware
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const startTime = Date.now();
+  
+  res.on('finish', () => {
+    const duration = Date.now() - startTime;
+    logger.info('Request processed', {
+      method: req.method,
+      path: req.path,
+      statusCode: res.statusCode,
+      duration: `${duration}ms`,
+      userAgent: req.get('user-agent'),
+      userId: req.user?.id
+    });
+  });
+  
+  next();
+});
+
 // Database connection middleware
-app.use(async (_req: Request, _res: Response, next: NextFunction) => {
+app.use(async (req: Request, res: Response, next: NextFunction) => {
   try {
     await db.execute(sql`SELECT 1`);
     next();
   } catch (error) {
-    console.error('Database connection error:', error);
+    logger.error('Database connection failed in middleware', error, {
+      path: req.path,
+      method: req.method,
+      userId: req.user?.id
+    });
     next(new APIError(500, 'Database connection failed'));
   }
 });
@@ -62,8 +96,16 @@ const server = createServer(app);
 const PORT = parseInt(process.env.PORT || '5000', 10);
 
 // Enhanced error handling middleware
-app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-  console.error('Server error:', err);
+app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+  const errorContext = {
+    path: req.path,
+    method: req.method,
+    userId: req.user?.id,
+    statusCode: err.statusCode || 500,
+    errorType: err.constructor.name
+  };
+
+  logger.error('Server error', err, errorContext);
 
   // Handle different types of errors
   if (err instanceof APIError) {
@@ -84,7 +126,14 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   }
 
   // Handle database errors
-  if (err.code && err.code.startsWith('23')) { // PostgreSQL error codes
+  if (err.code && err.code.startsWith('23')) {
+    const dbErrorContext = {
+      ...errorContext,
+      dbErrorCode: err.code,
+      dbErrorDetail: process.env.NODE_ENV === 'development' ? err.detail : undefined
+    };
+    logger.error('Database constraint violation', err, dbErrorContext);
+    
     return res.status(400).json({
       status: "error",
       message: "Database constraint violation",
@@ -106,15 +155,19 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 
 // Graceful shutdown handler
 function gracefulShutdown(signal: string) {
-  console.log(`\nReceived ${signal}. Starting graceful shutdown...`);
+  logger.info(`Starting graceful shutdown`, { signal });
+  
   server.close(() => {
-    console.log('HTTP server closed');
+    logger.info('HTTP server closed');
     process.exit(0);
   });
 
   // Force close after 10s
   setTimeout(() => {
-    console.error('Could not close connections in time, forcefully shutting down');
+    logger.error('Could not close connections in time, forcefully shutting down', null, {
+      signal,
+      timeoutMs: 10000
+    });
     process.exit(1);
   }, 10000);
 }
@@ -128,7 +181,10 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
     // Wait for database before starting server
     const dbReady = await waitForDatabase();
     if (!dbReady) {
-      console.error('Failed to connect to database after retries. Exiting...');
+      logger.error('Failed to connect to database after retries', null, {
+        maxRetries: MAX_RETRIES,
+        totalDelayMs: MAX_RETRIES * RETRY_DELAY
+      });
       process.exit(1);
     }
 
@@ -145,10 +201,14 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
         second: "2-digit",
         hour12: true,
       });
-      console.log(`[${time}] Server running on http://localhost:${PORT}`);
+      logger.info(`Server started`, {
+        port: PORT,
+        nodeEnv: process.env.NODE_ENV,
+        startTime: time
+      });
     });
   } catch (error) {
-    console.error('Failed to start server:', error);
+    logger.error('Failed to start server', error);
     process.exit(1);
   }
 })();
