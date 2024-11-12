@@ -39,72 +39,61 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       throw new APIError(500, "Make.com webhook URL is not configured");
     }
 
-    console.log('Sending request to webhook:', {
-      url: webhookUrl,
-      websiteUrl: websiteUrl
-    });
+    console.log('Sending webhook request:', websiteUrl);
 
     const response = await fetch(webhookUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        website_url: websiteUrl
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ website_url: websiteUrl })
     });
 
-    const contentType = response.headers.get('content-type');
-    console.log('Response content-type:', contentType);
+    if (!response.ok) {
+      throw new APIError(response.status, `Webhook request failed: ${response.statusText}`);
+    }
 
     const rawResponse = await response.text();
-    console.log('Raw response:', rawResponse);
+    console.log('Raw webhook response:', rawResponse);
 
     let responseData;
     try {
       responseData = JSON.parse(rawResponse);
-      console.log('Parsed response:', responseData);
     } catch (error) {
-      console.error('JSON parse error:', error);
+      console.error('Failed to parse webhook response:', error);
       throw new APIError(400, "Invalid JSON response from webhook");
     }
 
-    // Handle array response format
-    let competitors = Array.isArray(responseData) ? responseData : 
-                     responseData.competitors && Array.isArray(responseData.competitors) ? responseData.competitors :
-                     responseData.data && Array.isArray(responseData.data) ? responseData.data : null;
+    console.log('Parsed webhook response:', JSON.stringify(responseData, null, 2));
 
-    if (!competitors) {
-      console.error('Invalid response format:', responseData);
-      throw new APIError(400, "Invalid response format from webhook");
+    // Expect the exact format: { competitors: [...] }
+    if (!responseData || !responseData.competitors || !Array.isArray(responseData.competitors)) {
+      throw new APIError(400, "Invalid response format: Expected { competitors: [...] }");
     }
 
-    return competitors.map(comp => {
-      const website = comp.url || comp.website;
-      if (!website) {
-        console.error('No URL found in competitor:', comp);
+    return responseData.competitors.map(comp => {
+      if (!comp.url) {
+        console.warn('Competitor missing URL:', comp);
         return null;
       }
 
       try {
-        const hostname = new URL(website).hostname.replace(/^www\./, '');
+        const hostname = new URL(comp.url).hostname.replace(/^www\./, '');
         return {
           name: hostname,
-          website: website,
+          website: comp.url,
           reason: comp.reason || ''
         };
       } catch (error) {
-        console.error('Error parsing URL:', website, error);
+        console.warn('Invalid competitor URL:', comp.url, error);
         return null;
       }
     }).filter(Boolean);
 
   } catch (error) {
-    console.error('Discovery error:', error);
+    console.error('Competitor discovery error:', error);
     if (error instanceof APIError) {
       throw error;
     }
-    throw new APIError(500, `Competitor discovery failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    throw new APIError(500, `Failed to discover competitors: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
