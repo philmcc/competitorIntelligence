@@ -39,54 +39,38 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       throw new APIError(500, "Make.com webhook URL is not configured");
     }
 
-    console.log('Sending webhook request:', websiteUrl);
-
     const response = await fetch(webhookUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify({ website_url: websiteUrl })
     });
+
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      throw new APIError(500, "Invalid response from webhook: Expected JSON");
+    }
 
     if (!response.ok) {
       throw new APIError(response.status, `Webhook request failed: ${response.statusText}`);
     }
 
-    const rawResponse = await response.text();
-    console.log('Raw webhook response:', rawResponse);
+    const responseData = await response.json();
+    console.log('Webhook response:', JSON.stringify(responseData, null, 2));
 
-    let responseData;
-    try {
-      responseData = JSON.parse(rawResponse);
-    } catch (error) {
-      console.error('Failed to parse webhook response:', error);
-      throw new APIError(400, "Invalid JSON response from webhook");
+    if (!responseData.competitors || !Array.isArray(responseData.competitors)) {
+      throw new APIError(400, "Invalid response format from webhook");
     }
 
-    console.log('Parsed webhook response:', JSON.stringify(responseData, null, 2));
-
-    // Expect the exact format: { competitors: [...] }
-    if (!responseData || !responseData.competitors || !Array.isArray(responseData.competitors)) {
-      throw new APIError(400, "Invalid response format: Expected { competitors: [...] }");
-    }
-
-    return responseData.competitors.map(comp => {
-      if (!comp.url) {
-        console.warn('Competitor missing URL:', comp);
-        return null;
-      }
-
-      try {
-        const hostname = new URL(comp.url).hostname.replace(/^www\./, '');
-        return {
-          name: hostname,
-          website: comp.url,
-          reason: comp.reason || ''
-        };
-      } catch (error) {
-        console.warn('Invalid competitor URL:', comp.url, error);
-        return null;
-      }
-    }).filter(Boolean);
+    return responseData.competitors
+      .filter(comp => comp && comp.url)
+      .map(comp => ({
+        name: new URL(comp.url).hostname.replace(/^www\./, ''),
+        website: comp.url,
+        reason: comp.reason || ''
+      }));
 
   } catch (error) {
     console.error('Competitor discovery error:', error);
@@ -182,14 +166,6 @@ export function registerRoutes(app: Express) {
     try {
       const discoveredCompetitors = await discoverCompetitors(validation.data.websiteUrl);
       
-      if (discoveredCompetitors.length === 0) {
-        return res.json({
-          status: "success",
-          message: "No competitors found",
-          data: []
-        });
-      }
-
       res.json({
         status: "success",
         data: discoveredCompetitors
