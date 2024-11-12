@@ -4,6 +4,7 @@ import { useSubscription } from "../hooks/use-subscription";
 import { useToast } from "@/hooks/use-toast";
 import { useUser } from "../hooks/use-user";
 import { loadStripe } from '@stripe/stripe-js';
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
 
@@ -48,21 +49,80 @@ interface SubscriptionResponse {
   };
 }
 
+function PaymentForm({ clientSecret, onSuccess, onError }: { 
+  clientSecret: string; 
+  onSuccess: () => void;
+  onError: (error: Error) => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!stripe || !elements) {
+      return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          return_url: window.location.origin,
+        },
+        redirect: 'if_required',
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (paymentIntent.status === 'succeeded') {
+        onSuccess();
+      } else {
+        throw new Error('Payment was not completed successfully');
+      }
+    } catch (error) {
+      onError(error instanceof Error ? error : new Error('Payment failed'));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement />
+      <Button 
+        type="submit" 
+        disabled={!stripe || isProcessing}
+        className="w-full"
+      >
+        {isProcessing ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Processing...
+          </>
+        ) : (
+          "Pay Now"
+        )}
+      </Button>
+    </form>
+  );
+}
+
 export default function SubscriptionManagement() {
   const { subscription, subscribe, cancelSubscription } = useSubscription();
   const { user, mutate: mutateUser } = useUser();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
 
   const handleSubscribe = async () => {
     try {
       setIsLoading(true);
-
-      // Verify Stripe initialization
-      const stripe = await stripePromise;
-      if (!stripe) {
-        throw new Error("Stripe failed to initialize");
-      }
 
       const response = await fetch('/api/subscriptions/create', {
         method: 'POST',
@@ -77,24 +137,8 @@ export default function SubscriptionManagement() {
         throw new Error(errorData.message || 'Failed to create subscription');
       }
 
-      const { data: { clientSecret } } = await response.json() as SubscriptionResponse;
-      
-      const { error: paymentError, paymentIntent } = await stripe.confirmCardPayment(clientSecret);
-      
-      if (paymentError) {
-        console.error('Payment error:', paymentError);
-        throw new Error(paymentError.message || "Payment failed");
-      }
-
-      if (paymentIntent?.status === 'succeeded') {
-        toast({
-          title: "Success",
-          description: "Your subscription has been activated successfully!",
-        });
-        mutateUser();
-      } else {
-        throw new Error("Payment was not completed successfully");
-      }
+      const { data } = await response.json() as SubscriptionResponse;
+      setClientSecret(data.clientSecret);
     } catch (error) {
       console.error('Subscription error:', error);
       toast({
@@ -102,9 +146,28 @@ export default function SubscriptionManagement() {
         description: error instanceof Error ? error.message : "Failed to process subscription",
         variant: "destructive",
       });
+      setClientSecret(null);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handlePaymentSuccess = () => {
+    toast({
+      title: "Success",
+      description: "Your subscription has been activated successfully!",
+    });
+    mutateUser();
+    setClientSecret(null);
+  };
+
+  const handlePaymentError = (error: Error) => {
+    console.error('Payment error:', error);
+    toast({
+      title: "Payment Failed",
+      description: error.message,
+      variant: "destructive",
+    });
   };
 
   const handleCancel = async () => {
@@ -198,6 +261,17 @@ export default function SubscriptionManagement() {
               </li>
             ))}
           </ul>
+          {clientSecret && (
+            <div className="mt-4">
+              <Elements stripe={stripePromise} options={{ clientSecret }}>
+                <PaymentForm
+                  clientSecret={clientSecret}
+                  onSuccess={handlePaymentSuccess}
+                  onError={handlePaymentError}
+                />
+              </Elements>
+            </div>
+          )}
         </CardContent>
         <CardFooter>
           {isPro ? (
@@ -216,19 +290,21 @@ export default function SubscriptionManagement() {
               )}
             </Button>
           ) : (
-            <Button 
-              onClick={handleSubscribe}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                "Upgrade to Pro"
-              )}
-            </Button>
+            !clientSecret && (
+              <Button 
+                onClick={handleSubscribe}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  "Upgrade to Pro"
+                )}
+              </Button>
+            )
           )}
         </CardFooter>
       </Card>
