@@ -32,11 +32,8 @@ export default function Auth() {
         // Ensure user data is refreshed
         await mutate("/api/user");
         
-        // Add a delay to allow state updates to complete
-        await new Promise(resolve => setTimeout(resolve, 200));
-        
-        // Force navigation
-        window.location.href = "/dashboard";
+        // Use setLocation instead of window.location.href
+        setLocation("/dashboard");
       } else {
         toast({
           title: "Error",

@@ -46,9 +46,13 @@ export function setupAuth(app: Express) {
   const MemoryStore = createMemoryStore(session);
   const sessionSettings: session.SessionOptions = {
     secret: process.env.REPL_ID || "porygon-supremacy",
-    resave: false,
-    saveUninitialized: false,
-    cookie: {},
+    resave: true,
+    saveUninitialized: true,
+    cookie: {
+      secure: app.get("env") === "production",
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    },
     store: new MemoryStore({
       checkPeriod: 86400000, // prune expired entries every 24h
     }),
@@ -56,12 +60,16 @@ export function setupAuth(app: Express) {
 
   if (app.get("env") === "production") {
     app.set("trust proxy", 1);
-    sessionSettings.cookie = {
-      secure: true,
-    };
   }
 
   app.use(session(sessionSettings));
+  app.use((req, res, next) => {
+    if (!req.session) {
+      return next(new Error('Session initialization failed'));
+    }
+    next();
+  });
+  
   app.use(passport.initialize());
   app.use(passport.session());
 
@@ -100,7 +108,6 @@ export function setupAuth(app: Express) {
         .where(eq(users.id, id))
         .limit(1);
       
-      // Ensure all user fields are properly loaded
       if (!user) {
         return done(new Error('User not found'));
       }
@@ -203,8 +210,14 @@ export function setupAuth(app: Express) {
 
   app.get("/api/user", (req, res) => {
     if (req.isAuthenticated()) {
-      return res.json(req.user);
+      return res.json({
+        status: "success",
+        data: req.user
+      });
     }
-    res.status(401).json({ message: "Unauthorized" });
+    res.status(401).json({ 
+      status: "error",
+      message: "Unauthorized" 
+    });
   });
 }
