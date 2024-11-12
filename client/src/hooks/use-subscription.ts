@@ -36,7 +36,6 @@ export function useSubscription() {
     try {
       const response = await fetch("/api/subscriptions/cancel", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
       });
       
       const result: ApiResponse<void> = await response.json();
@@ -48,7 +47,11 @@ export function useSubscription() {
       await mutate("/api/subscriptions/status");
       return { ok: true };
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      console.error('Cancellation error:', error);
+      return { 
+        ok: false, 
+        error: error instanceof Error ? error.message : "Failed to cancel subscription"
+      };
     }
   };
 
