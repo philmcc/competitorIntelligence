@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
+import { Loader2, ArrowUpRight } from "lucide-react";
 
 interface WebsiteChange {
   id: number;
@@ -11,6 +11,10 @@ interface WebsiteChange {
   changes: any[];
   changeType: string;
   isReported: boolean;
+  aiAnalysis?: {
+    summary: string;
+    timestamp: string;
+  };
 }
 
 interface Props {
@@ -50,7 +54,7 @@ export default function WebsiteChanges({ competitorId }: Props) {
       if (result.status === "success") {
         toast({
           title: "Success",
-          description: result.data ? "Changes detected and recorded" : "No changes detected"
+          description: result.data ? "Changes detected and analyzed" : "No changes detected"
         });
         await fetchChanges();
       }
@@ -104,11 +108,41 @@ export default function WebsiteChanges({ competitorId }: Props) {
                     </span>
                   )}
                 </div>
+                {change.aiAnalysis && (
+                  <div className="mt-4 p-4 bg-muted/50 rounded-lg">
+                    <h4 className="font-medium mb-2 flex items-center gap-2">
+                      AI Analysis
+                      <ArrowUpRight className="h-4 w-4" />
+                    </h4>
+                    <p className="text-sm whitespace-pre-wrap">
+                      {change.aiAnalysis.summary}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Analyzed at: {new Date(change.aiAnalysis.timestamp).toLocaleString()}
+                    </p>
+                  </div>
+                )}
                 {change.changes && (
-                  <div className="mt-2 text-sm">
-                    <pre className="whitespace-pre-wrap">
-                      {JSON.stringify(change.changes, null, 2)}
-                    </pre>
+                  <div className="mt-4">
+                    <h4 className="font-medium mb-2">Raw Changes</h4>
+                    <div className="text-sm bg-muted p-4 rounded-lg overflow-x-auto">
+                      <pre className="whitespace-pre-wrap">
+                        {change.changes.map((c: any, i: number) => (
+                          <span
+                            key={i}
+                            className={
+                              c.added
+                                ? "text-green-600 bg-green-50 px-1"
+                                : c.removed
+                                ? "text-red-600 bg-red-50 px-1"
+                                : ""
+                            }
+                          >
+                            {c.value}
+                          </span>
+                        ))}
+                      </pre>
+                    </div>
                   </div>
                 )}
               </div>
