@@ -552,7 +552,65 @@ export function registerRoutes(app: Express) {
       if (error instanceof Error && error.message.includes('unique constraint')) {
         throw new APIError(409, "Module with this name already exists");
       }
-      throw new APIError(500, "Failed to create research module");
+      throw new APIError(500, "Failed to create research module", 
+        error instanceof Error ? [{ 
+          code: "create_error", 
+          message: error.message 
+        }] : undefined
+      );
+    }
+  }));
+
+  app.get("/api/admin/settings/:moduleId", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+    const moduleId = parseInt(req.params.moduleId);
+    
+    if (isNaN(moduleId)) {
+      throw new APIError(400, "Invalid module ID");
+    }
+
+    try {
+      // Get existing settings
+      let settings = await db
+        .select()
+        .from(researchSettings)
+        .where(eq(researchSettings.moduleId, moduleId));
+
+      // If no settings exist, create default settings for website changes module
+      if (settings.length === 0) {
+        const [module] = await db
+          .select()
+          .from(researchModules)
+          .where(eq(researchModules.id, moduleId));
+
+        if (module && module.name === "Website Change Tracking") {
+          const [defaultSettings] = await db
+            .insert(researchSettings)
+            .values({
+              moduleId,
+              name: "openai_config",
+              value: DEFAULT_WEBSITE_CHANGES_SETTINGS,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            })
+            .returning();
+          
+          settings = [defaultSettings];
+        }
+      }
+
+      res.json({
+        status: "success",
+        data: settings,
+        requestId: req.requestId,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      throw new APIError(500, "Failed to fetch module settings", 
+        error instanceof Error ? [{ 
+          code: "fetch_error", 
+          message: error.message 
+        }] : undefined
+      );
     }
   }));
 

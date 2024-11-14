@@ -26,17 +26,27 @@ export default function ResearchModuleSettings({ moduleId }: Props) {
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
 
-  useEffect(() => {
-    fetchSettings();
-  }, [moduleId]);
-
   const fetchSettings = async () => {
     try {
-      const response = await fetch(`/api/admin/settings/${moduleId}`);
+      const response = await fetch(`/api/admin/settings/${moduleId}`, {
+        credentials: "include"
+      });
       const result = await response.json();
       
       if (result.status === "success" && result.data.length > 0) {
         setSettings(result.data[0]);
+      } else if (result.status === "success") {
+        // Handle case where no settings exist yet
+        setSettings({
+          id: 0,
+          moduleId,
+          name: "openai_config",
+          value: {
+            model: "gpt-4",
+            prompt_template: "",
+            schedule: "0 */6 * * *"
+          }
+        });
       }
     } catch (error) {
       toast({
@@ -49,6 +59,12 @@ export default function ResearchModuleSettings({ moduleId }: Props) {
     }
   };
 
+  useEffect(() => {
+    if (moduleId) {
+      fetchSettings();
+    }
+  }, [moduleId]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!settings) return;
@@ -57,9 +73,12 @@ export default function ResearchModuleSettings({ moduleId }: Props) {
     try {
       const response = await fetch(`/api/admin/settings/${moduleId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        credentials: "include",
         body: JSON.stringify({
-          moduleId,
           name: settings.name,
           value: settings.value
         })
@@ -73,11 +92,13 @@ export default function ResearchModuleSettings({ moduleId }: Props) {
           description: "Settings updated successfully"
         });
         setSettings(result.data);
+      } else {
+        throw new Error(result.message || "Failed to update settings");
       }
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to update settings",
+        description: error instanceof Error ? error.message : "Failed to update settings",
         variant: "destructive"
       });
     } finally {
