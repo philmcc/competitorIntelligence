@@ -13,6 +13,19 @@ import { moduleSchema, moduleUpdateSchema } from "./schemas";
 import { trackWebsiteChanges, trackAllCompetitors } from './utils/website-tracker';
 import * as schedule from 'node-schedule';
 
+// Default settings for website changes module
+const DEFAULT_WEBSITE_CHANGES_SETTINGS = {
+  model: "gpt-4",
+  prompt_template: `Analyze the following website content changes and provide insights:
+1. Summarize the main changes
+2. Identify potential business implications
+3. Highlight any significant updates or announcements
+
+Changes:
+{{changes}}`,
+  schedule: "0 */6 * * *" // Every 6 hours
+};
+
 // Add settings validation schema
 const settingsSchema = z.object({
   moduleId: z.number(),
@@ -518,6 +531,17 @@ export function registerRoutes(app: Express) {
         })
         .returning();
 
+      // If it's a website changes module, insert default settings
+      if (module && module.name === "Website Change Tracking") {
+        await db.insert(researchSettings).values({
+          moduleId: module.id,
+          name: "openai_config",
+          value: DEFAULT_WEBSITE_CHANGES_SETTINGS,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+      }
+
       res.json({
         status: "success",
         data: module,
@@ -528,12 +552,7 @@ export function registerRoutes(app: Express) {
       if (error instanceof Error && error.message.includes('unique constraint')) {
         throw new APIError(409, "Module with this name already exists");
       }
-      throw new APIError(500, "Failed to create research module", 
-        error instanceof Error ? [{ 
-          code: "create_error", 
-          message: error.message 
-        }] : undefined
-      );
+      throw new APIError(500, "Failed to create research module");
     }
   }));
 
@@ -721,74 +740,98 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // Add settings routes
+  // Settings Management Routes
   app.get("/api/admin/settings/:moduleId", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
     const moduleId = parseInt(req.params.moduleId);
     
-    const settings = await db
-      .select()
-      .from(researchSettings)
-      .where(eq(researchSettings.moduleId, moduleId));
+    try {
+      const settings = await db
+        .select()
+        .from(researchSettings)
+        .where(eq(researchSettings.moduleId, moduleId));
 
-    res.json({
-      status: "success",
-      data: settings
-    });
+      if (!settings.length) {
+        // If no settings exist for website changes module, return default settings
+        const [module] = await db
+          .select()
+          .from(researchModules)
+          .where(eq(researchModules.id, moduleId));
+
+        if (module && module.name === "Website Change Tracking") {
+          return res.json({
+            status: "success",
+            data: [{
+              moduleId,
+              name: "openai_config",
+              value: DEFAULT_WEBSITE_CHANGES_SETTINGS
+            }]
+          });
+        }
+      }
+
+      res.json({
+        status: "success",
+        data: settings
+      });
+    } catch (error) {
+      throw new APIError(500, "Failed to fetch settings");
+    }
   }));
 
   app.put("/api/admin/settings/:moduleId", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
     const validation = settingsSchema.safeParse(req.body);
-
+    
     if (!validation.success) {
       throw new APIError(400, "Validation failed", validation.error.errors);
     }
 
     const { moduleId, name, value } = validation.data;
 
-    // Additional validation for OpenAI configuration
-    if (name === 'openai_config') {
-      const configValidation = openAIConfigSchema.safeParse(value);
-      if (!configValidation.success) {
-        throw new APIError(400, "Invalid OpenAI configuration", configValidation.error.errors);
-      }
-    }
+    try {
+      // Check if settings exist
+      const [existingSettings] = await db
+        .select()
+        .from(researchSettings)
+        .where(
+          and(
+            eq(researchSettings.moduleId, moduleId),
+            eq(researchSettings.name, name)
+          )
+        );
 
-    const [setting] = await db
-      .update(researchSettings)
-      .set({
-        value,
-        updatedAt: new Date()
-      })
-      .where(
-        and(
-          eq(researchSettings.moduleId, moduleId),
-          eq(researchSettings.name, name)
-        )
-      )
-      .returning();
-
-    // Update the scheduler if the settings affect scheduling
-    if (name === 'openai_config' && value.schedule) {
-      // Cancel existing job if it exists
-      const existingJob = schedule.scheduledJobs['trackWebsiteChanges'];
-      if (existingJob) {
-        existingJob.cancel();
+      let updatedSettings;
+      
+      if (existingSettings) {
+        // Update existing settings
+        [updatedSettings] = await db
+          .update(researchSettings)
+          .set({
+            value,
+            updatedAt: new Date()
+          })
+          .where(eq(researchSettings.id, existingSettings.id))
+          .returning();
+      } else {
+        // Create new settings
+        [updatedSettings] = await db
+          .insert(researchSettings)
+          .values({
+            moduleId,
+            name,
+            value,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          })
+          .returning();
       }
-    
-      // Schedule new job with updated schedule
-      schedule.scheduleJob('trackWebsiteChanges', value.schedule, async () => {
-        try {
-          await trackAllCompetitors();
-        } catch (error) {
-          console.error('Error in scheduled website tracking:', error);
-        }
+
+      res.json({
+        status: "success",
+        data: updatedSettings
       });
+    } catch (error) {
+      throw new APIError(500, "Failed to update settings");
     }
-
-    res.json({
-      status: "success",
-      data: setting
-    });
   }));
 
   // Add tracking status endpoint
