@@ -10,6 +10,8 @@ import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
+import AdminDashboard from "./pages/AdminDashboard";
+import UserCompetitors from "./pages/UserCompetitors";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -20,6 +22,8 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/reports" component={Reports} />
         <Route path="/settings" component={Settings} />
+        <Route path="/admin" component={AdminDashboard} />
+        <Route path="/admin/users/:userId/competitors" component={UserCompetitors} />
         <Route>404 Page Not Found</Route>
       </Switch>
       <Toaster />

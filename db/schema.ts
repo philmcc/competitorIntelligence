@@ -1,6 +1,7 @@
-import { pgTable, text, integer, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, boolean, jsonb, serial, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
+import { relations, sql } from "drizzle-orm";
 
 export const users = pgTable("users", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -47,6 +48,16 @@ export const reports = pgTable("reports", {
   reportUrl: text("report_url").notNull()
 });
 
+export const researchModules = pgTable("research_modules", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  availableOnFree: boolean("available_on_free").default(false).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull()
+});
+
 export const insertUserSchema = createInsertSchema(users);
 export const selectUserSchema = createSelectSchema(users);
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -66,3 +77,34 @@ export const insertReportSchema = createInsertSchema(reports);
 export const selectReportSchema = createSelectSchema(reports);
 export type InsertReport = z.infer<typeof insertReportSchema>;
 export type Report = z.infer<typeof selectReportSchema>;
+
+export const userModules = pgTable("user_modules", {
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  moduleId: integer("module_id")
+    .notNull()
+    .references(() => researchModules.id, { onDelete: "cascade" }),
+  isEnabled: boolean("is_enabled").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull()
+}, (table) => ({
+  pk: primaryKey({ columns: [table.userId, table.moduleId] })
+}));
+
+export const researchModulesRelations = relations(researchModules, ({ many }) => ({
+  userModules: many(userModules)
+}));
+
+export const userModulesRelations = relations(userModules, ({ one }) => ({
+  user: one(users, {
+    fields: [userModules.userId],
+    references: [users.id]
+  }),
+  module: one(researchModules, {
+    fields: [userModules.moduleId],
+    references: [researchModules.id]
+  })
+}));
+
+export type ResearchModule = typeof researchModules.$inferSelect;
+export type InsertResearchModule = typeof researchModules.$inferInsert;

@@ -27,6 +27,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Button variant="ghost" onClick={() => setLocation("/settings")}>
                 Settings
               </Button>
+              {user.isAdmin && (
+                <Button variant="ghost" onClick={() => setLocation("/admin")}>
+                  Admin Panel
+                </Button>
+              )}
               <span className="text-sm text-muted-foreground">
                 {user.username} ({user.plan})
               </span>

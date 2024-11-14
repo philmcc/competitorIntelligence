@@ -1,10 +1,15 @@
-import { useEffect, useState } from "react";
-import { useLocation } from "wouter";
+import { useParams } from "wouter";
+import useSWR from "swr";
 import Layout from "../components/Layout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
+import { useLocation } from "wouter";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -13,57 +18,51 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Competitor } from "db/schema";
+import { cn } from "@/lib/utils";
+
+interface Competitor {
+  id: number;
+  name: string;
+  website: string;
+  isActive: boolean;
+  isSelected: boolean;
+  createdAt: string;
+}
+
+interface ApiResponse {
+  status: string;
+  data: Competitor[];
+}
 
 export default function UserCompetitors() {
+  const { userId } = useParams();
   const [, setLocation] = useLocation();
-  const { toast } = useToast();
-  const [competitors, setCompetitors] = useState<Competitor[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  // Extract user ID from URL
-  const userId = window.location.pathname.split('/').pop();
-
-  useEffect(() => {
-    async function fetchCompetitors() {
-      try {
-        const response = await fetch(`/api/admin/users/${userId}/competitors`, {
-          credentials: 'include'
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch competitors');
-        }
-
-        const data = await response.json();
-        setCompetitors(data.data);
-      } catch (error) {
-        setError(error instanceof Error ? error.message : 'Failed to load competitors');
-        toast({
-          title: "Error",
-          description: "Failed to load competitors",
-          variant: "destructive"
-        });
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    if (userId) {
-      fetchCompetitors();
-    }
-  }, [userId, toast]);
+  const { data, error, isLoading } = useSWR<ApiResponse>(
+    `/api/admin/users/${userId}/competitors`
+  );
 
   if (isLoading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center h-screen">
-          <Loader2 className="h-8 w-8 animate-spin" />
+        <div className="container py-6">
+          <div>Loading...</div>
         </div>
       </Layout>
     );
   }
+
+  if (error) {
+    return (
+      <Layout>
+        <div className="container py-6">
+          <div className="text-red-500">Error loading competitors: {error.message}</div>
+        </div>
+      </Layout>
+    );
+  }
+
+  const competitors = data?.data || [];
 
   return (
     <Layout>
@@ -102,8 +101,16 @@ export default function UserCompetitors() {
                   </TableHeader>
                   <TableBody>
                     {competitors.map((competitor) => (
-                      <TableRow key={competitor.id}>
-                        <TableCell>{competitor.name}</TableCell>
+                      <TableRow 
+                        key={competitor.id}
+                        className={cn(
+                          !competitor.isSelected && "opacity-60 bg-muted/50",
+                          competitor.isSelected && "bg-blue-50/50"
+                        )}
+                      >
+                        <TableCell className="font-medium">
+                          {competitor.name}
+                        </TableCell>
                         <TableCell>
                           <a
                             href={competitor.website}
@@ -115,10 +122,24 @@ export default function UserCompetitors() {
                           </a>
                         </TableCell>
                         <TableCell>
-                          {competitor.isActive ? 'Active' : 'Inactive'}
+                          <span className={cn(
+                            "inline-flex items-center rounded-full px-2 py-1 text-xs font-medium",
+                            competitor.isActive 
+                              ? "bg-green-100 text-green-700" 
+                              : "bg-gray-100 text-gray-700"
+                          )}>
+                            {competitor.isActive ? 'Active' : 'Inactive'}
+                          </span>
                         </TableCell>
                         <TableCell>
-                          {competitor.isSelected ? 'Yes' : 'No'}
+                          <span className={cn(
+                            "inline-flex items-center rounded-full px-2 py-1 text-xs font-medium",
+                            competitor.isSelected 
+                              ? "bg-blue-100 text-blue-700" 
+                              : "bg-gray-100 text-gray-700"
+                          )}>
+                            {competitor.isSelected ? 'Yes' : 'No'}
+                          </span>
                         </TableCell>
                         <TableCell>
                           {new Date(competitor.createdAt).toLocaleDateString()}

@@ -17,131 +17,105 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAdmin } from "@/hooks/use-admin";
+import AdminModules from "../components/AdminModules";
+import { StatsCard } from "../components/StatsCard";
+import { Switch } from "@/components/ui/switch";
 
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
   const { users, statistics, isLoading, isError, updateUser } = useAdmin();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedTab, setSelectedTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState("overview");
 
-  const filteredUsers = users?.filter(user =>
-    user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase())
-  ) || [];
-
-  const handleViewCompetitors = (userId: number) => {
-    setLocation(`/admin/users/${userId}/competitors`);
-  };
-
-  const handleUpdateUser = async (userId: number, updates: any) => {
-    const result = await updateUser(userId, updates);
-    if (result.ok) {
-      toast({
-        title: "Success",
-        description: "User updated successfully"
-      });
-    } else {
-      toast({
-        title: "Error",
-        description: result.message,
-        variant: "destructive"
-      });
-    }
-  };
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="container py-6">
+          <Card>
+            <CardContent className="py-6">
+              <div className="flex justify-center">
+                <Loader2 className="h-6 w-6 animate-spin" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </Layout>
+    );
+  }
 
   if (isError) {
     return (
       <Layout>
         <div className="container py-6">
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              Failed to load admin dashboard data. Please try again later.
-            </AlertDescription>
-          </Alert>
+          <Card>
+            <CardContent className="py-6">
+              <p className="text-center text-destructive">
+                Error loading admin data
+              </p>
+            </CardContent>
+          </Card>
         </div>
       </Layout>
     );
   }
 
-  if (isLoading) {
-    return (
-      <Layout>
-        <div className="flex items-center justify-center h-screen">
-          <Loader2 className="h-8 w-8 animate-spin" />
-        </div>
-      </Layout>
-    );
-  }
+  const statsData = statistics?.data || {
+    users: {
+      totalUsers: 0,
+      freeUsers: 0,
+      proUsers: 0
+    },
+    competitors: {
+      totalCompetitors: 0,
+      activeCompetitors: 0,
+      selectedCompetitors: 0
+    }
+  };
+
+  const filteredUsers = users?.data ? users.data.filter(user => 
+    user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.email.toLowerCase().includes(searchTerm.toLowerCase())
+  ) : [];
 
   return (
     <Layout>
       <div className="container py-6 space-y-6">
-        <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-        </div>
+        <h1 className="text-3xl font-bold">Admin Dashboard</h1>
 
-        <Tabs value={selectedTab} onValueChange={setSelectedTab}>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="users">User Management</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="overview" className="space-y-4">
-            {statistics && (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Users className="h-4 w-4" />
-                      User Statistics
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <dl className="space-y-2">
-                      <div className="flex justify-between">
-                        <dt>Total Users</dt>
-                        <dd>{statistics.users.totalUsers}</dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt>Free Plan Users</dt>
-                        <dd>{statistics.users.freeUsers}</dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt>Pro Plan Users</dt>
-                        <dd>{statistics.users.proUsers}</dd>
-                      </div>
-                    </dl>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Target className="h-4 w-4" />
-                      Competitor Statistics
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <dl className="space-y-2">
-                      <div className="flex justify-between">
-                        <dt>Total Competitors</dt>
-                        <dd>{statistics.competitors.totalCompetitors}</dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt>Active Competitors</dt>
-                        <dd>{statistics.competitors.activeCompetitors}</dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt>Selected Competitors</dt>
-                        <dd>{statistics.competitors.selectedCompetitors}</dd>
-                      </div>
-                    </dl>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
+          <TabsContent value="overview">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <StatsCard
+                title="Total Users"
+                value={statsData.users.totalUsers}
+              />
+              <StatsCard
+                title="Pro Users"
+                value={statsData.users.proUsers}
+              />
+              <StatsCard
+                title="Free Users"
+                value={statsData.users.freeUsers}
+              />
+              <StatsCard
+                title="Total Competitors"
+                value={statsData.competitors.totalCompetitors}
+              />
+              <StatsCard
+                title="Active Competitors"
+                value={statsData.competitors.activeCompetitors}
+              />
+              <StatsCard
+                title="Selected Competitors"
+                value={statsData.competitors.selectedCompetitors}
+              />
+            </div>
           </TabsContent>
 
           <TabsContent value="users">
@@ -179,30 +153,21 @@ export default function AdminDashboard() {
                         <TableRow key={user.id}>
                           <TableCell>{user.username}</TableCell>
                           <TableCell>{user.email}</TableCell>
+                          <TableCell>{user.plan}</TableCell>
                           <TableCell>
-                            <select
-                              value={user.plan}
-                              onChange={(e) => handleUpdateUser(user.id, { plan: e.target.value })}
-                              className="border rounded p-1"
-                            >
-                              <option value="free">Free</option>
-                              <option value="pro">Pro</option>
-                            </select>
-                          </TableCell>
-                          <TableCell>
-                            <input
-                              type="checkbox"
+                            <Switch
                               checked={user.isAdmin}
-                              onChange={(e) => handleUpdateUser(user.id, { isAdmin: e.target.checked })}
-                              className="rounded border-gray-300"
+                              onCheckedChange={async (checked) => {
+                                await updateUser(user.id, { isAdmin: checked });
+                              }}
                             />
                           </TableCell>
-                          <TableCell>{user.websiteUrl || "Not set"}</TableCell>
+                          <TableCell>{user.websiteUrl}</TableCell>
                           <TableCell>
                             <Button
-                              variant="outline"
+                              variant="ghost"
                               size="sm"
-                              onClick={() => handleViewCompetitors(user.id)}
+                              onClick={() => setLocation(`/admin/users/${user.id}/competitors`)}
                             >
                               View Competitors
                             </Button>

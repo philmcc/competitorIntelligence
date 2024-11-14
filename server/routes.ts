@@ -1,7 +1,7 @@
 import { Express, Request, Response, NextFunction } from "express";
 import { setupAuth } from "./auth";
 import { db } from "db";
-import { competitors, reports, subscriptions, users } from "db/schema";
+import { competitors, reports, subscriptions, users, researchModules, userModules } from "db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { createCustomer, createSubscription, cancelSubscription } from "./stripe";
 import Stripe from "stripe";
@@ -9,6 +9,7 @@ import fetch from "node-fetch";
 import { z } from "zod";
 import { APIError } from "./errors";
 import { requireAdmin } from "./middleware/admin";
+import { moduleSchema } from "./schemas";
 
 // Validation schemas
 const competitorSchema = z.object({
@@ -24,6 +25,12 @@ const websiteUrlSchema = z.object({
     url => url.startsWith('http://') || url.startsWith('https://'),
     "URL must start with http:// or https://"
   )
+});
+
+const moduleSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+  availableOnFree: z.boolean().optional()
 });
 
 // Plan limits
@@ -155,11 +162,35 @@ export function registerRoutes(app: Express) {
   }));
 
   app.get("/api/admin/users/:userId/competitors", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
-    const userCompetitors = await db
-      .select()
-      .from(competitors)
-      .where(eq(competitors.userId, parseInt(req.params.userId)));
+    const userId = parseInt(req.params.userId);
     
+    // Validate that the user exists
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user) {
+      throw new APIError(404, "User not found");
+    }
+
+    // Get all competitors for the user
+    const userCompetitors = await db
+      .select({
+        id: competitors.id,
+        name: competitors.name,
+        website: competitors.website,
+        isActive: competitors.isActive,
+        isSelected: competitors.isSelected,
+        createdAt: competitors.createdAt
+      })
+      .from(competitors)
+      .where(eq(competitors.userId, userId))
+      .orderBy(
+        sql`${competitors.isSelected} DESC, ${competitors.createdAt} DESC`
+      );
+
     res.json({
       status: "success",
       data: userCompetitors
@@ -388,28 +419,104 @@ export function registerRoutes(app: Express) {
 
   // Add statistics endpoint for admin dashboard
   app.get("/api/admin/statistics", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
-    const [userStats] = await db
-      .select({
-        totalUsers: sql<number>`count(*)`,
-        freeUsers: sql<number>`sum(case when ${users.plan} = 'free' then 1 else 0 end)`,
-        proUsers: sql<number>`sum(case when ${users.plan} = 'pro' then 1 else 0 end)`
-      })
+    // Get total users count
+    const [{ count: totalUsers }] = await db
+      .select({ count: sql<number>`count(*)` })
       .from(users);
 
+    // Get users by plan
+    const usersByPlan = await db
+      .select({
+        plan: users.plan,
+        count: sql<number>`count(*)`
+      })
+      .from(users)
+      .groupBy(users.plan);
+
+    // Get competitors statistics
     const [competitorStats] = await db
       .select({
         totalCompetitors: sql<number>`count(*)`,
-        activeCompetitors: sql<number>`sum(case when ${competitors.isActive} = true then 1 else 0 end)`,
-        selectedCompetitors: sql<number>`sum(case when ${competitors.isSelected} = true then 1 else 0 end)`
+        activeCompetitors: sql<number>`count(*) filter (where ${competitors.isActive} = true)`,
+        selectedCompetitors: sql<number>`count(*) filter (where ${competitors.isSelected} = true)`
       })
       .from(competitors);
+
+    const freeUsers = usersByPlan.find(u => u.plan === 'free')?.count || 0;
+    const proUsers = usersByPlan.find(u => u.plan === 'pro')?.count || 0;
 
     res.json({
       status: "success",
       data: {
-        users: userStats,
+        users: {
+          totalUsers,
+          freeUsers,
+          proUsers
+        },
         competitors: competitorStats
       }
+    });
+  }));
+
+  // Admin module management routes
+  app.get("/api/admin/modules", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+    const modules = await db
+      .select({
+        id: researchModules.id,
+        name: researchModules.name,
+        description: researchModules.description,
+        availableOnFree: researchModules.availableOnFree,
+        isActive: researchModules.isActive,
+        userCount: sql<number>`count(distinct ${userModules.userId})`
+      })
+      .from(researchModules)
+      .leftJoin(userModules, eq(researchModules.id, userModules.moduleId))
+      .groupBy(researchModules.id)
+      .orderBy(researchModules.name);
+
+    res.json({
+      status: "success",
+      data: modules
+    });
+  }));
+
+  app.post("/api/admin/modules", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+    const validation = moduleSchema.safeParse(req.body);
+    
+    if (!validation.success) {
+      throw new APIError(400, "Validation failed", validation.error.errors);
+    }
+
+    const [module] = await db
+      .insert(researchModules)
+      .values(validation.data)
+      .returning();
+
+    res.json({
+      status: "success",
+      data: module
+    });
+  }));
+
+  app.put("/api/admin/modules/:id", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+    const validation = moduleSchema.partial().safeParse(req.body);
+    
+    if (!validation.success) {
+      throw new APIError(400, "Validation failed", validation.error.errors);
+    }
+
+    const [module] = await db
+      .update(researchModules)
+      .set({
+        ...validation.data,
+        updatedAt: new Date()
+      })
+      .where(eq(researchModules.id, parseInt(req.params.id)))
+      .returning();
+
+    res.json({
+      status: "success",
+      data: module
     });
   }));
 }
