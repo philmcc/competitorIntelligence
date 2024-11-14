@@ -41,6 +41,30 @@ export default function CompetitorCard({ competitor }: { competitor: Competitor 
     }
   };
 
+  const handleToggleActive = async () => {
+    if (!competitor.isActive && meta?.remaining === 0) {
+      toast({
+        title: "Plan limit reached",
+        description: "You've reached the maximum number of active competitors for your plan. Please upgrade to track more.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    const result = await updateCompetitor(competitor.id, {
+      ...competitor,
+      isActive: !competitor.isActive
+    });
+    
+    if (!result.ok) {
+      toast({
+        title: "Error updating tracking status",
+        description: result.message,
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -54,29 +78,7 @@ export default function CompetitorCard({ competitor }: { competitor: Competitor 
             <div className="flex items-center gap-2">
               <Switch
                 checked={competitor.isActive}
-                onCheckedChange={async () => {
-                  if (!competitor.isActive && meta?.remaining === 0) {
-                    toast({
-                      title: "Plan limit reached",
-                      description: "You've reached the maximum number of active competitors for your plan. Please upgrade to track more.",
-                      variant: "destructive",
-                    });
-                    return;
-                  }
-                  
-                  const result = await updateCompetitor(competitor.id, {
-                    ...competitor,
-                    isActive: !competitor.isActive
-                  });
-                  if (!result.ok) {
-                    toast({
-                      title: "Error updating tracking status",
-                      description: result.message,
-                      variant: "destructive",
-                    });
-                  }
-                }}
-                disabled={false}
+                onCheckedChange={handleToggleActive}
               />
               <span className={competitor.isActive ? "opacity-100" : "opacity-50"}>
                 {competitor.name}
