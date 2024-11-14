@@ -9,7 +9,7 @@ import fetch from "node-fetch";
 import { z } from "zod";
 import { APIError } from "./errors";
 import { requireAdmin } from "./middleware/admin";
-import { moduleSchema } from "./schemas";
+import { moduleSchema, moduleUpdateSchema } from "./schemas";
 import { trackWebsiteChanges, trackAllCompetitors } from './utils/website-tracker';
 import { scheduleJob } from 'node-schedule';
 
@@ -27,12 +27,6 @@ const websiteUrlSchema = z.object({
     url => url.startsWith('http://') || url.startsWith('https://'),
     "URL must start with http:// or https://"
   )
-});
-
-const moduleSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  description: z.string().optional(),
-  availableOnFree: z.boolean().optional()
 });
 
 // Plan limits
@@ -462,24 +456,35 @@ export function registerRoutes(app: Express) {
 
   // Admin module management routes
   app.get("/api/admin/modules", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
-    const modules = await db
-      .select({
-        id: researchModules.id,
-        name: researchModules.name,
-        description: researchModules.description,
-        availableOnFree: researchModules.availableOnFree,
-        isActive: researchModules.isActive,
-        userCount: sql<number>`count(distinct ${userModules.userId})`
-      })
-      .from(researchModules)
-      .leftJoin(userModules, eq(researchModules.id, userModules.moduleId))
-      .groupBy(researchModules.id)
-      .orderBy(researchModules.name);
+    try {
+      const modules = await db
+        .select({
+          id: researchModules.id,
+          name: researchModules.name,
+          description: researchModules.description,
+          availableOnFree: researchModules.availableOnFree,
+          isActive: researchModules.isActive,
+          userCount: sql<number>`count(distinct ${userModules.userId})`
+        })
+        .from(researchModules)
+        .leftJoin(userModules, eq(researchModules.id, userModules.moduleId))
+        .groupBy(researchModules.id)
+        .orderBy(researchModules.name);
 
-    res.json({
-      status: "success",
-      data: modules
-    });
+      res.json({
+        status: "success",
+        data: modules,
+        requestId: req.requestId,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      throw new APIError(500, "Failed to fetch research modules", 
+        error instanceof Error ? [{ 
+          code: "fetch_error", 
+          message: error.message 
+        }] : undefined
+      );
+    }
   }));
 
   app.post("/api/admin/modules", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
@@ -489,37 +494,84 @@ export function registerRoutes(app: Express) {
       throw new APIError(400, "Validation failed", validation.error.errors);
     }
 
-    const [module] = await db
-      .insert(researchModules)
-      .values(validation.data)
-      .returning();
+    try {
+      const [module] = await db
+        .insert(researchModules)
+        .values({
+          ...validation.data,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        })
+        .returning();
 
-    res.json({
-      status: "success",
-      data: module
-    });
+      res.json({
+        status: "success",
+        data: module,
+        requestId: req.requestId,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('unique constraint')) {
+        throw new APIError(409, "Module with this name already exists");
+      }
+      throw new APIError(500, "Failed to create research module", 
+        error instanceof Error ? [{ 
+          code: "create_error", 
+          message: error.message 
+        }] : undefined
+      );
+    }
   }));
 
   app.put("/api/admin/modules/:id", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
-    const validation = moduleSchema.partial().safeParse(req.body);
+    const validation = moduleUpdateSchema.safeParse(req.body);
     
     if (!validation.success) {
       throw new APIError(400, "Validation failed", validation.error.errors);
     }
 
-    const [module] = await db
-      .update(researchModules)
-      .set({
-        ...validation.data,
-        updatedAt: new Date()
-      })
-      .where(eq(researchModules.id, parseInt(req.params.id)))
-      .returning();
+    const moduleId = parseInt(req.params.id);
+    if (isNaN(moduleId)) {
+      throw new APIError(400, "Invalid module ID");
+    }
 
-    res.json({
-      status: "success",
-      data: module
-    });
+    try {
+      // Check if module exists
+      const [existingModule] = await db
+        .select()
+        .from(researchModules)
+        .where(eq(researchModules.id, moduleId));
+
+      if (!existingModule) {
+        throw new APIError(404, "Module not found");
+      }
+
+      const [module] = await db
+        .update(researchModules)
+        .set({
+          ...validation.data,
+          updatedAt: new Date()
+        })
+        .where(eq(researchModules.id, moduleId))
+        .returning();
+
+      res.json({
+        status: "success",
+        data: module,
+        requestId: req.requestId,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      if (error instanceof APIError) {
+        throw error;
+      }
+      throw new APIError(500, "Failed to update research module", 
+        error instanceof Error ? [{ 
+          code: "update_error", 
+          message: error.message 
+        }] : undefined
+      );
+    }
   }));
 
   // Website change tracking endpoints
