@@ -1,8 +1,8 @@
 import { Express, Request, Response, NextFunction } from "express";
 import { setupAuth } from "./auth";
 import { db } from "db";
-import { competitors, reports, subscriptions, users, researchModules, userModules } from "db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { competitors, reports, subscriptions, users, researchModules, userModules, websiteChanges } from "db/schema";
+import { eq, and, sql, desc } from "drizzle-orm";
 import { createCustomer, createSubscription, cancelSubscription } from "./stripe";
 import Stripe from "stripe";
 import fetch from "node-fetch";
@@ -10,6 +10,8 @@ import { z } from "zod";
 import { APIError } from "./errors";
 import { requireAdmin } from "./middleware/admin";
 import { moduleSchema } from "./schemas";
+import { trackWebsiteChanges, trackAllCompetitors } from './utils/website-tracker';
+import { scheduleJob } from 'node-schedule';
 
 // Validation schemas
 const competitorSchema = z.object({
@@ -519,4 +521,139 @@ export function registerRoutes(app: Express) {
       data: module
     });
   }));
+
+  // Website change tracking endpoints
+  app.post("/api/competitors/:id/track", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const competitorId = parseInt(req.params.id);
+    
+    // Verify competitor belongs to user
+    const [competitor] = await db
+      .select()
+      .from(competitors)
+      .where(and(
+        eq(competitors.id, competitorId),
+        eq(competitors.userId, req.user!.id)
+      ));
+
+    if (!competitor) {
+      throw new APIError(404, "Competitor not found");
+    }
+
+    const changes = await trackWebsiteChanges(competitorId, competitor.website);
+    
+    res.json({
+      status: "success",
+      data: changes
+    });
+  }));
+
+  app.get("/api/competitors/:id/changes", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const competitorId = parseInt(req.params.id);
+    
+    // Verify competitor belongs to user
+    const [competitor] = await db
+      .select()
+      .from(competitors)
+      .where(and(
+        eq(competitors.id, competitorId),
+        eq(competitors.userId, req.user!.id)
+      ));
+
+    if (!competitor) {
+      throw new APIError(404, "Competitor not found");
+    }
+
+    const changes = await db
+      .select()
+      .from(websiteChanges)
+      .where(eq(websiteChanges.competitorId, competitorId))
+      .orderBy(desc(websiteChanges.createdAt))
+      .limit(10);
+
+    res.json({
+      status: "success",
+      data: changes
+    });
+  }));
+
+  // Report generation endpoint
+  app.post("/api/reports/generate", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    // Get all selected competitors for the user
+    const userCompetitors = await db
+      .select()
+      .from(competitors)
+      .where(and(
+        eq(competitors.userId, req.user!.id),
+        eq(competitors.isSelected, true)
+      ));
+
+    // Get unreported changes for each competitor
+    const changes = await db
+      .select({
+        id: websiteChanges.id,
+        competitorId: websiteChanges.competitorId,
+        snapshotDate: websiteChanges.snapshotDate,
+        changes: websiteChanges.changes,
+        changeType: websiteChanges.changeType,
+        competitorName: competitors.name,
+        competitorWebsite: competitors.website
+      })
+      .from(websiteChanges)
+      .innerJoin(competitors, eq(websiteChanges.competitorId, competitors.id))
+      .where(and(
+        eq(websiteChanges.isReported, false),
+        eq(competitors.userId, req.user!.id),
+        eq(competitors.isSelected, true)
+      ))
+      .orderBy(desc(websiteChanges.createdAt));
+
+    // Generate report content
+    const reportContent = changes.map(change => ({
+      competitor: {
+        name: change.competitorName,
+        website: change.competitorWebsite
+      },
+      date: new Date(change.snapshotDate).toLocaleDateString(),
+      type: change.changeType,
+      changes: change.changes
+    }));
+
+    if (reportContent.length === 0) {
+      throw new APIError(400, "No new changes to report");
+    }
+
+    // Create report record
+    const [report] = await db.insert(reports)
+      .values({
+        userId: req.user!.id,
+        competitorIds: userCompetitors.map(c => c.id),
+        modules: ["website-changes"],
+        reportUrl: `/reports/${Date.now()}.json`, // In a real app, this would be a generated PDF/stored file
+      })
+      .returning();
+
+    // Mark changes as reported
+    await db.update(websiteChanges)
+      .set({ isReported: true })
+      .where(eq(websiteChanges.isReported, false));
+
+    res.json({
+      status: "success",
+      data: {
+        report,
+        content: reportContent
+      }
+    });
+  }));
+
+  // Schedule daily website tracking
+  scheduleJob('0 0 * * *', async () => {
+    console.log('Running scheduled website tracking...');
+    try {
+      await trackAllCompetitors();
+      console.log('Scheduled website tracking completed successfully');
+    } catch (error) {
+      console.error('Error in scheduled website tracking:', error);
+    }
+  });
 }

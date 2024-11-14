@@ -15,6 +15,18 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow().notNull()
 });
 
+export const websiteChanges = pgTable("website_changes", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  competitorId: integer("competitor_id").notNull().references(() => competitors.id, { onDelete: "cascade" }),
+  snapshotDate: timestamp("snapshot_date").defaultNow().notNull(),
+  content: text("content").notNull(),
+  contentHash: text("content_hash").notNull(),
+  changes: jsonb("changes"),
+  changeType: text("change_type"),
+  isReported: boolean("is_reported").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull()
+});
+
 export const subscriptions = pgTable("subscriptions", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: integer("user_id").notNull().references(() => users.id),
@@ -90,6 +102,11 @@ export const userModules = pgTable("user_modules", {
 }, (table) => ({
   pk: primaryKey({ columns: [table.userId, table.moduleId] })
 }));
+
+export const websiteChangesSchema = createInsertSchema(websiteChanges);
+export const selectWebsiteChangesSchema = createSelectSchema(websiteChanges);
+export type InsertWebsiteChange = z.infer<typeof websiteChangesSchema>;
+export type WebsiteChange = z.infer<typeof selectWebsiteChangesSchema>;
 
 export const researchModulesRelations = relations(researchModules, ({ many }) => ({
   userModules: many(userModules)
