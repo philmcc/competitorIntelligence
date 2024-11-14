@@ -111,8 +111,8 @@ export default function Dashboard() {
   }
 
   const showUpgradeAlert = meta && meta.remaining === 0 && user?.plan === "free";
-  const selectedCompetitors = competitors.filter(c => c.isSelected);
-  const availableCompetitors = competitors.filter(c => !c.isSelected);
+  const activeCompetitors = competitors.filter(c => c.isActive);
+  const inactiveCompetitors = competitors.filter(c => !c.isActive);
 
   return (
     <Layout>
@@ -122,7 +122,7 @@ export default function Dashboard() {
             <h1 className="text-3xl font-bold">Dashboard</h1>
             {meta && (
               <p className="text-sm text-muted-foreground mt-1">
-                Selected {selectedCompetitors.length} of {meta.limit} competitor slots
+                Active {activeCompetitors.length} of {meta.limit} competitor slots
               </p>
             )}
           </div>
@@ -136,7 +136,7 @@ export default function Dashboard() {
           <Alert variant="default" className="bg-yellow-50 border-yellow-200">
             <AlertCircle className="h-4 w-4 text-yellow-600" />
             <AlertDescription className="text-yellow-600">
-              You've reached the maximum number of selected competitors for the free plan.{" "}
+              You've reached the maximum number of active competitors for the free plan.{" "}
               <Button
                 variant="link"
                 className="p-0 text-yellow-600 underline hover:text-yellow-700"
@@ -144,7 +144,7 @@ export default function Dashboard() {
               >
                 Upgrade to Pro
               </Button>{" "}
-              to select more competitors.
+              to track more competitors.
             </AlertDescription>
           </Alert>
         )}
@@ -206,31 +206,31 @@ export default function Dashboard() {
         </section>
 
         <section>
-          <h2 className="text-2xl font-semibold mb-4">Selected Competitors</h2>
-          {selectedCompetitors.length === 0 ? (
+          <h2 className="text-2xl font-semibold mb-4">Active Competitors</h2>
+          {activeCompetitors.length === 0 ? (
             <div className="text-center p-8 border rounded-lg bg-muted/10">
               <p className="text-muted-foreground">
-                No competitors selected. Use the switch toggle to select competitors you want to track.
+                No competitors active. Use the switch toggle to activate competitors you want to track.
               </p>
             </div>
           ) : (
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {selectedCompetitors.map((competitor) => (
+              {activeCompetitors.map((competitor) => (
                 <CompetitorCard key={competitor.id} competitor={competitor} />
               ))}
             </div>
           )}
           
-          <h2 className="text-2xl font-semibold mb-4 mt-8">Available Competitors</h2>
-          {availableCompetitors.length === 0 ? (
+          <h2 className="text-2xl font-semibold mb-4 mt-8">Inactive Competitors</h2>
+          {inactiveCompetitors.length === 0 ? (
             <div className="text-center p-8 border rounded-lg bg-muted/10">
               <p className="text-muted-foreground">
-                No available competitors. Use the buttons above to add competitors.
+                No inactive competitors. Use the buttons above to add competitors.
               </p>
             </div>
           ) : (
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {availableCompetitors.map((competitor) => (
+              {inactiveCompetitors.map((competitor) => (
                 <CompetitorCard key={competitor.id} competitor={competitor} />
               ))}
             </div>

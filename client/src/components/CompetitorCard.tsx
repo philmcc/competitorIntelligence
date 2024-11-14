@@ -53,12 +53,12 @@ export default function CompetitorCard({ competitor }: { competitor: Competitor 
           ) : (
             <div className="flex items-center gap-2">
               <Switch
-                checked={competitor.isSelected}
+                checked={competitor.isActive}
                 onCheckedChange={async () => {
-                  if (!competitor.isSelected && meta?.remaining === 0) {
+                  if (!competitor.isActive && meta?.remaining === 0) {
                     toast({
                       title: "Plan limit reached",
-                      description: "You've reached the maximum number of selected competitors for your plan. Please upgrade to select more.",
+                      description: "You've reached the maximum number of active competitors for your plan. Please upgrade to track more.",
                       variant: "destructive",
                     });
                     return;
@@ -66,11 +66,11 @@ export default function CompetitorCard({ competitor }: { competitor: Competitor 
                   
                   const result = await updateCompetitor(competitor.id, {
                     ...competitor,
-                    isSelected: !competitor.isSelected
+                    isActive: !competitor.isActive
                   });
                   if (!result.ok) {
                     toast({
-                      title: "Error updating selection",
+                      title: "Error updating tracking status",
                       description: result.message,
                       variant: "destructive",
                     });
@@ -78,7 +78,7 @@ export default function CompetitorCard({ competitor }: { competitor: Competitor 
                 }}
                 disabled={false}
               />
-              <span className={competitor.isSelected ? "opacity-100" : "opacity-50"}>
+              <span className={competitor.isActive ? "opacity-100" : "opacity-50"}>
                 {competitor.name}
               </span>
             </div>
@@ -147,7 +147,7 @@ export default function CompetitorCard({ competitor }: { competitor: Competitor 
             </>
           )}
           
-          {competitor.isSelected && (
+          {competitor.isActive && (
             <div className="mt-4">
               <WebsiteChanges competitorId={competitor.id} />
             </div>

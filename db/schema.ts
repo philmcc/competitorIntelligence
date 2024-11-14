@@ -47,7 +47,6 @@ export const competitors = pgTable("competitors", {
   reason: text("reason"),
   customFields: jsonb("custom_fields").default({}).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
-  isSelected: boolean("is_selected").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull()
 });
 
