@@ -86,14 +86,14 @@ export async function trackWebsiteChanges(competitorId: number, websiteUrl: stri
 
 export async function trackAllCompetitors(): Promise<void> {
   try {
-    // Get all active competitors
-    const activeCompetitors = await db
+    // Get all selected competitors
+    const selectedCompetitors = await db
       .select()
       .from(competitors)
-      .where(eq(competitors.isActive, true));
+      .where(eq(competitors.isSelected, true));
 
     // Track changes for each competitor
-    for (const competitor of activeCompetitors) {
+    for (const competitor of selectedCompetitors) {
       try {
         await trackWebsiteChanges(competitor.id, competitor.website);
       } catch (error) {
