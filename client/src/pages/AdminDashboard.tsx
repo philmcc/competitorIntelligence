@@ -27,6 +27,51 @@ export default function AdminDashboard() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
+  const [isTrackingEnabled, setIsTrackingEnabled] = useState(true);
+
+  useEffect(() => {
+    // Fetch website tracking status
+    fetch("/api/admin/tracking/status", {
+      credentials: "include"
+    })
+      .then(res => res.json())
+      .then(result => {
+        if (result.status === "success") {
+          setIsTrackingEnabled(result.data.enabled);
+        }
+      })
+      .catch(error => {
+        console.error("Failed to fetch tracking status:", error);
+      });
+  }, []);
+
+  const handleTrackingToggle = async (enabled: boolean) => {
+    try {
+      const response = await fetch("/api/admin/tracking/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ enabled })
+      });
+
+      const result = await response.json();
+      if (result.status === "success") {
+        setIsTrackingEnabled(enabled);
+        toast({
+          title: "Success",
+          description: `Website change tracking ${enabled ? "enabled" : "disabled"} successfully`
+        });
+      } else {
+        throw new Error(result.message || "Failed to update tracking status");
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update tracking status",
+        variant: "destructive"
+      });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -87,6 +132,8 @@ export default function AdminDashboard() {
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="users">User Management</TabsTrigger>
+            <TabsTrigger value="modules">Research Modules</TabsTrigger>
+            <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -94,26 +141,32 @@ export default function AdminDashboard() {
               <StatsCard
                 title="Total Users"
                 value={statsData.users.totalUsers}
+                icon={<Users className="h-4 w-4" />}
               />
               <StatsCard
                 title="Pro Users"
                 value={statsData.users.proUsers}
+                icon={<Users className="h-4 w-4" />}
               />
               <StatsCard
                 title="Free Users"
                 value={statsData.users.freeUsers}
+                icon={<Users className="h-4 w-4" />}
               />
               <StatsCard
                 title="Total Competitors"
                 value={statsData.competitors.totalCompetitors}
+                icon={<Target className="h-4 w-4" />}
               />
               <StatsCard
                 title="Active Competitors"
                 value={statsData.competitors.activeCompetitors}
+                icon={<Target className="h-4 w-4" />}
               />
               <StatsCard
                 title="Selected Competitors"
                 value={statsData.competitors.selectedCompetitors}
+                icon={<Target className="h-4 w-4" />}
               />
             </div>
           </TabsContent>
@@ -176,6 +229,37 @@ export default function AdminDashboard() {
                       ))}
                     </TableBody>
                   </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="modules">
+            <AdminModules />
+          </TabsContent>
+
+          <TabsContent value="settings">
+            <Card>
+              <CardHeader>
+                <CardTitle>System Settings</CardTitle>
+                <CardDescription>
+                  Configure global system settings and features
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <h4 className="font-medium">Website Change Tracking</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Enable or disable automated website change tracking for all competitors
+                      </p>
+                    </div>
+                    <Switch
+                      checked={isTrackingEnabled}
+                      onCheckedChange={handleTrackingToggle}
+                    />
+                  </div>
                 </div>
               </CardContent>
             </Card>

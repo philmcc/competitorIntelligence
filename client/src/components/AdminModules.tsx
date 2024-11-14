@@ -2,9 +2,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 interface Module {
   id: string;
@@ -12,17 +13,46 @@ interface Module {
   description: string;
   availableOnFree: boolean;
   isActive: boolean;
+  userCount: number;
 }
 
 export default function AdminModules() {
   const { toast } = useToast();
   const [modules, setModules] = useState<Module[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isFetching, setIsFetching] = useState(true);
   const [newModule, setNewModule] = useState({
     name: "",
     description: "",
     availableOnFree: false
   });
+
+  const fetchModules = async () => {
+    try {
+      const response = await fetch("/api/admin/modules", {
+        credentials: "include"
+      });
+      const result = await response.json();
+      
+      if (result.status === "success") {
+        setModules(result.data);
+      } else {
+        throw new Error(result.message || "Failed to fetch modules");
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to fetch modules",
+        variant: "destructive"
+      });
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchModules();
+  }, []);
 
   const handleUpdateModule = async (moduleId: string, updates: Partial<Module>) => {
     try {
@@ -33,8 +63,9 @@ export default function AdminModules() {
         body: JSON.stringify(updates)
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to update module");
+      const result = await response.json();
+      if (result.status !== "success") {
+        throw new Error(result.message || "Failed to update module");
       }
 
       toast({
@@ -42,7 +73,6 @@ export default function AdminModules() {
         description: "Module updated successfully"
       });
 
-      // Refresh modules list
       fetchModules();
     } catch (error) {
       toast({
@@ -65,8 +95,9 @@ export default function AdminModules() {
         body: JSON.stringify(newModule)
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to add module");
+      const result = await response.json();
+      if (result.status !== "success") {
+        throw new Error(result.message || "Failed to add module");
       }
 
       toast({
@@ -80,7 +111,6 @@ export default function AdminModules() {
         availableOnFree: false
       });
 
-      // Refresh modules list
       fetchModules();
     } catch (error) {
       toast({
@@ -92,6 +122,18 @@ export default function AdminModules() {
       setIsLoading(false);
     }
   };
+
+  if (isFetching) {
+    return (
+      <Card>
+        <CardContent className="py-6">
+          <div className="flex justify-center">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -141,9 +183,20 @@ export default function AdminModules() {
             <Card key={module.id}>
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold">{module.name}</h3>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold">{module.name}</h3>
+                      <Badge variant={module.isActive ? "default" : "secondary"}>
+                        {module.isActive ? "Active" : "Inactive"}
+                      </Badge>
+                      {module.availableOnFree && (
+                        <Badge variant="outline">Free Plan</Badge>
+                      )}
+                    </div>
                     <p className="text-sm text-muted-foreground">{module.description}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Users: {module.userCount}
+                    </p>
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="flex items-center space-x-2">
@@ -169,4 +222,4 @@ export default function AdminModules() {
       </CardContent>
     </Card>
   );
-} 
+}
