@@ -14,7 +14,7 @@ const app = express();
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
     ? process.env.CLIENT_URL || false
-    : 'http://localhost:3000', // Updated port for development
+    : 'http://localhost:5173', // Updated port for Vite dev server
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']

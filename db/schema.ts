@@ -123,5 +123,22 @@ export const userModulesRelations = relations(userModules, ({ one }) => ({
   })
 }));
 
+// Add new settings table
+export const researchSettings = pgTable("research_settings", {
+  id: serial("id").primaryKey(),
+  moduleId: integer("module_id")
+    .notNull()
+    .references(() => researchModules.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  value: jsonb("value").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull()
+});
+
+export const insertResearchSettingsSchema = createInsertSchema(researchSettings);
+export const selectResearchSettingsSchema = createSelectSchema(researchSettings);
+export type InsertResearchSettings = z.infer<typeof insertResearchSettingsSchema>;
+export type ResearchSettings = z.infer<typeof selectResearchSettingsSchema>;
+
 export type ResearchModule = typeof researchModules.$inferSelect;
 export type InsertResearchModule = typeof researchModules.$inferInsert;

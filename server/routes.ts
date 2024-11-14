@@ -1,7 +1,7 @@
 import { Express, Request, Response, NextFunction } from "express";
 import { setupAuth } from "./auth";
 import { db } from "db";
-import { competitors, reports, subscriptions, users, researchModules, userModules, websiteChanges } from "db/schema";
+import { competitors, reports, subscriptions, users, researchModules, userModules, websiteChanges, researchSettings } from "db/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { createCustomer, createSubscription, cancelSubscription } from "./stripe";
 import Stripe from "stripe";
@@ -11,7 +11,21 @@ import { APIError } from "./errors";
 import { requireAdmin } from "./middleware/admin";
 import { moduleSchema, moduleUpdateSchema } from "./schemas";
 import { trackWebsiteChanges, trackAllCompetitors } from './utils/website-tracker';
-import { scheduleJob } from 'node-schedule';
+import * as schedule from 'node-schedule';
+
+// Add settings validation schema
+const settingsSchema = z.object({
+  moduleId: z.number(),
+  name: z.string(),
+  value: z.record(z.any())
+});
+
+// Add OpenAI config schema
+const openAIConfigSchema = z.object({
+  model: z.string(),
+  prompt_template: z.string(),
+  schedule: z.string().optional()
+});
 
 // Validation schemas
 const competitorSchema = z.object({
@@ -57,7 +71,7 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       throw new Error("Empty response from webhook");
     }
     
-    const responseData = JSON.parse(rawResponse);
+    let responseData = JSON.parse(rawResponse);
 
     if (!responseData || typeof responseData !== 'object') {
       throw new APIError(400, "Invalid response format: expected JSON object");
@@ -72,8 +86,8 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
     }
 
     return responseData.competitors
-      .filter(comp => comp && typeof comp === 'object' && comp.url)
-      .map(comp => ({
+      .filter((comp: any) => comp && typeof comp === 'object' && comp.url)
+      .map((comp: any) => ({
         name: new URL(comp.url).hostname.replace(/^www\./, ''),
         website: comp.url,
         reason: comp.reason || ''
@@ -699,13 +713,103 @@ export function registerRoutes(app: Express) {
   }));
 
   // Schedule daily website tracking
-  scheduleJob('0 0 * * *', async () => {
-    console.log('Running scheduled website tracking...');
+  schedule.scheduleJob('0 0 * * *', async () => {
     try {
       await trackAllCompetitors();
-      console.log('Scheduled website tracking completed successfully');
     } catch (error) {
       console.error('Error in scheduled website tracking:', error);
     }
   });
+
+  // Add settings routes
+  app.get("/api/admin/settings/:moduleId", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+    const moduleId = parseInt(req.params.moduleId);
+    
+    const settings = await db
+      .select()
+      .from(researchSettings)
+      .where(eq(researchSettings.moduleId, moduleId));
+
+    res.json({
+      status: "success",
+      data: settings
+    });
+  }));
+
+  app.put("/api/admin/settings/:moduleId", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+    const validation = settingsSchema.safeParse(req.body);
+
+    if (!validation.success) {
+      throw new APIError(400, "Validation failed", validation.error.errors);
+    }
+
+    const { moduleId, name, value } = validation.data;
+
+    // Additional validation for OpenAI configuration
+    if (name === 'openai_config') {
+      const configValidation = openAIConfigSchema.safeParse(value);
+      if (!configValidation.success) {
+        throw new APIError(400, "Invalid OpenAI configuration", configValidation.error.errors);
+      }
+    }
+
+    const [setting] = await db
+      .update(researchSettings)
+      .set({
+        value,
+        updatedAt: new Date()
+      })
+      .where(
+        and(
+          eq(researchSettings.moduleId, moduleId),
+          eq(researchSettings.name, name)
+        )
+      )
+      .returning();
+
+    // Update the scheduler if the settings affect scheduling
+    if (name === 'openai_config' && value.schedule) {
+      // Cancel existing job if it exists
+      const existingJob = schedule.scheduledJobs['trackWebsiteChanges'];
+      if (existingJob) {
+        existingJob.cancel();
+      }
+    
+      // Schedule new job with updated schedule
+      schedule.scheduleJob('trackWebsiteChanges', value.schedule, async () => {
+        try {
+          await trackAllCompetitors();
+        } catch (error) {
+          console.error('Error in scheduled website tracking:', error);
+        }
+      });
+    }
+
+    res.json({
+      status: "success",
+      data: setting
+    });
+  }));
+
+  // Add tracking status endpoint
+  app.get("/api/admin/tracking/status", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+    const [settings] = await db
+      .select()
+      .from(researchSettings)
+      .where(
+        and(
+          eq(researchSettings.name, 'openai_config')
+        )
+      );
+
+    const config = settings?.value as { schedule?: string } || {};
+
+    res.json({
+      status: "success",
+      data: {
+        enabled: true,
+        schedule: config.schedule || '0 */6 * * *'
+      }
+    });
+  }));
 }
