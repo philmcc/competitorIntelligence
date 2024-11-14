@@ -10,6 +10,7 @@ export const users = pgTable("users", {
   plan: text("plan").default("free").notNull(),
   stripeCustomerId: text("stripe_customer_id"),
   websiteUrl: text("website_url"),
+  isAdmin: boolean("is_admin").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull()
 });
 

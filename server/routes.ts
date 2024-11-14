@@ -8,6 +8,7 @@ import Stripe from "stripe";
 import fetch from "node-fetch";
 import { z } from "zod";
 import { APIError } from "./errors";
+import { requireAdmin } from "./middleware/admin";
 
 // Validation schemas
 const competitorSchema = z.object({
@@ -132,6 +133,56 @@ async function checkSelectedCompetitorLimit(userId: number): Promise<void> {
 export function registerRoutes(app: Express) {
   setupAuth(app);
   app.use('/api', setJsonContentType);
+
+  // Admin Routes
+  app.get("/api/admin/users", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+    const allUsers = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        email: users.email,
+        plan: users.plan,
+        isAdmin: users.isAdmin,
+        createdAt: users.createdAt,
+        websiteUrl: users.websiteUrl
+      })
+      .from(users);
+    
+    res.json({
+      status: "success",
+      data: allUsers
+    });
+  }));
+
+  app.get("/api/admin/users/:userId/competitors", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+    const userCompetitors = await db
+      .select()
+      .from(competitors)
+      .where(eq(competitors.userId, parseInt(req.params.userId)));
+    
+    res.json({
+      status: "success",
+      data: userCompetitors
+    });
+  }));
+
+  app.put("/api/admin/users/:userId", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+    const { plan, isAdmin } = req.body;
+    
+    const [updatedUser] = await db
+      .update(users)
+      .set({ 
+        plan: plan || undefined,
+        isAdmin: isAdmin !== undefined ? isAdmin : undefined
+      })
+      .where(eq(users.id, parseInt(req.params.userId)))
+      .returning();
+    
+    res.json({
+      status: "success",
+      data: updatedUser
+    });
+  }));
 
   // Subscription routes
   app.get("/api/subscriptions/status", requireAuth, asyncHandler(async (req: Request, res: Response) => {
@@ -332,6 +383,33 @@ export function registerRoutes(app: Express) {
     res.json({
       status: "success",
       message: "Competitor deleted successfully"
+    });
+  }));
+
+  // Add statistics endpoint for admin dashboard
+  app.get("/api/admin/statistics", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+    const [userStats] = await db
+      .select({
+        totalUsers: sql<number>`count(*)`,
+        freeUsers: sql<number>`sum(case when ${users.plan} = 'free' then 1 else 0 end)`,
+        proUsers: sql<number>`sum(case when ${users.plan} = 'pro' then 1 else 0 end)`
+      })
+      .from(users);
+
+    const [competitorStats] = await db
+      .select({
+        totalCompetitors: sql<number>`count(*)`,
+        activeCompetitors: sql<number>`sum(case when ${competitors.isActive} = true then 1 else 0 end)`,
+        selectedCompetitors: sql<number>`sum(case when ${competitors.isSelected} = true then 1 else 0 end)`
+      })
+      .from(competitors);
+
+    res.json({
+      status: "success",
+      data: {
+        users: userStats,
+        competitors: competitorStats
+      }
     });
   }));
 }
