@@ -1,5 +1,7 @@
 import useSWR from "swr";
 import type { User, InsertUser } from "db/schema";
+import { useEffect } from 'react';
+import { useLocation } from 'wouter';
 
 type ApiResponse<T> = {
   status: "success" | "error";
@@ -9,10 +11,18 @@ type ApiResponse<T> = {
 
 export function useUser() {
   const { data, error, mutate } = useSWR<ApiResponse<User>>('/api/user', {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-    refreshInterval: 0
+    revalidateOnFocus: true,
+    shouldRetryOnError: false,
   });
+
+  const [, setLocation] = useLocation();
+
+  // Add this effect to handle 401 responses
+  useEffect(() => {
+    if (error?.status === 401) {
+      setLocation('/auth');
+    }
+  }, [error, setLocation]);
 
   return {
     user: data?.data,

@@ -6,7 +6,6 @@ import type { Competitor } from "db/schema";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import WebsiteChanges from "./WebsiteChanges";
 
 export default function CompetitorCard({ competitor }: { competitor: Competitor }) {
   const { updateCompetitor, deleteCompetitor, meta } = useCompetitors();
@@ -145,12 +144,6 @@ export default function CompetitorCard({ competitor }: { competitor: Competitor 
                 </Button>
               </div>
             </>
-          )}
-          
-          {competitor.isSelected && (
-            <div className="mt-4">
-              <WebsiteChanges competitorId={competitor.id} />
-            </div>
           )}
         </div>
       </CardContent>

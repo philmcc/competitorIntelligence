@@ -12,6 +12,7 @@ import { requireAdmin } from "./middleware/admin";
 import { moduleSchema, moduleUpdateSchema } from "./schemas";
 import { trackWebsiteChanges, trackAllCompetitors } from './utils/website-tracker';
 import { scheduleJob } from 'node-schedule';
+import { websiteResearchResults } from "../db/schema";
 
 // Validation schemas
 const competitorSchema = z.object({
@@ -706,6 +707,244 @@ export function registerRoutes(app: Express) {
       console.log('Scheduled website tracking completed successfully');
     } catch (error) {
       console.error('Error in scheduled website tracking:', error);
+    }
+  });
+
+  // Add this new route handler
+  app.get('/api/admin/modules/stats', requireAdmin, async (req, res) => {
+    try {
+      const stats = await db
+        .select({
+          moduleId: userModules.moduleId,
+          count: sql<number>`count(*)`,
+        })
+        .from(userModules)
+        .where(eq(userModules.isEnabled, true))
+        .groupBy(userModules.moduleId);
+
+      const statsMap = Object.fromEntries(
+        stats.map(({ moduleId, count }) => [moduleId, count])
+      );
+
+      res.json({
+        status: 'success',
+        data: statsMap,
+      });
+    } catch (error) {
+      console.error('Error fetching module statistics:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to fetch module statistics'
+      });
+    }
+  });
+
+  // Add this new route handler
+  app.get('/api/modules', async (req, res) => {
+    try {
+      const userId = req.user.id; // Assuming you have user in request from auth middleware
+      
+      const modules = await db
+        .select({
+          id: researchModules.id,
+          name: researchModules.name,
+          description: researchModules.description,
+          availableOnFree: researchModules.availableOnFree,
+          isActive: researchModules.isActive,
+          isEnabled: userModules.isEnabled,
+        })
+        .from(researchModules)
+        .leftJoin(userModules, and(
+          eq(userModules.moduleId, researchModules.id),
+          eq(userModules.userId, userId)
+        ))
+        .where(eq(researchModules.isActive, true));
+
+      res.json({
+        status: 'success',
+        data: modules,
+      });
+    } catch (error) {
+      console.error('Error fetching modules:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to fetch modules'
+      });
+    }
+  });
+
+  // Toggle module for user
+  app.post('/api/modules/:moduleId/toggle', async (req, res) => {
+    try {
+      const { moduleId } = req.params;
+      const { enabled } = req.body;
+      const userId = req.user.id;
+
+      await db
+        .insert(userModules)
+        .values({
+          userId,
+          moduleId,
+          isEnabled: enabled,
+        })
+        .onConflictDoUpdate({
+          target: [userModules.userId, userModules.moduleId],
+          set: { isEnabled: enabled },
+        });
+
+      res.json({ status: 'success' });
+    } catch (error) {
+      console.error('Error toggling module:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to toggle module'
+      });
+    }
+  });
+
+  app.get('/api/user', async (req, res) => {
+    try {
+      // Check for valid session
+      const session = await getSession(req);
+      if (!session?.user) {
+        return res.status(401).json({
+          status: 'error',
+          message: 'Not authenticated'
+        });
+      }
+
+      // Get user data
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, session.user.id))
+        .limit(1)
+        .then(rows => rows[0]);
+
+      if (!user) {
+        return res.status(401).json({
+          status: 'error',
+          message: 'User not found'
+        });
+      }
+
+      res.json({
+        status: 'success',
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          isAdmin: user.isAdmin,
+          plan: user.plan,
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching user:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to fetch user data'
+      });
+    }
+  });
+
+  // Update the competitors route to check auth
+  app.get('/api/admin/users/:userId/competitors', requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      
+      // Validate userId is a number
+      const userIdNum = parseInt(userId);
+      if (isNaN(userIdNum)) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Invalid user ID'
+        });
+      }
+
+      // Check if user exists
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userIdNum))
+        .limit(1)
+        .then(rows => rows[0]);
+
+      if (!user) {
+        return res.status(404).json({
+          status: 'error',
+          message: 'User not found'
+        });
+      }
+
+      // Fetch competitors
+      const competitors = await db
+        .select({
+          id: competitors.id,
+          name: competitors.name,
+          website: competitors.website,
+          isSelected: competitors.isSelected,
+          createdAt: competitors.createdAt,
+          reason: competitors.reason,
+        })
+        .from(competitors)
+        .where(eq(competitors.userId, userIdNum))
+        .orderBy(competitors.createdAt);
+
+      res.json({
+        status: 'success',
+        data: competitors
+      });
+    } catch (error) {
+      console.error('Error fetching user competitors:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to fetch competitors'
+      });
+    }
+  });
+
+  app.post('/api/admin/competitors/:competitorId/research', requireAdmin, async (req, res) => {
+    try {
+      const { competitorId } = req.params;
+      const { website } = req.body;
+
+      // Call the webhook
+      const webhookResponse = await fetch('https://hook.eu2.make.com/q7tdf62gsing7fpf6bsepecx2fd6bvws', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ website }),
+      });
+
+      if (!webhookResponse.ok) {
+        throw new Error('Webhook call failed');
+      }
+
+      const [textResult, changesResult] = await webhookResponse.json();
+
+      // Store the results
+      const result = await db.insert(websiteResearchResults).values({
+        competitorId: parseInt(competitorId),
+        currentText: textResult.text,
+        changesMade: changesResult.changesMade === 'yes',
+        changeDetails: changesResult.detail,
+      }).returning();
+
+      res.json({
+        status: 'success',
+        data: {
+          changesMade: changesResult.changesMade === 'yes',
+          changeDetails: changesResult.detail,
+        },
+      });
+
+    } catch (error) {
+      console.error('Research error:', error);
+      res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to run research',
+      });
     }
   });
 }

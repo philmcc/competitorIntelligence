@@ -8,7 +8,9 @@
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
     "db:push": "drizzle-kit push",
-    "db:generate": "drizzle-kit generate:pg"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit push:pg",
+    "drizzle-kit": "drizzle-kit"
   },
   "dependencies": {
     "@heroicons/react": "^2.1.5",
@@ -59,6 +61,7 @@
     "cors": "^2.8.5",
     "date-fns": "^3.6.0",
     "diff": "^7.0.0",
+    "dotenv": "^16.4.5",
     "drizzle-orm": "^0.36.2",
     "drizzle-zod": "^0.5.1",
     "embla-carousel-react": "^8.3.0",
