@@ -3,7 +3,7 @@ import { db } from 'db';
 import { competitors, websiteChanges } from 'db/schema';
 import { eq, desc } from 'drizzle-orm';
 import fetch from 'node-fetch';
-import { diffWords } from 'diff';
+import { diffWords, type Change } from 'diff';
 import { logger } from './logger';
 import { scheduleJob, Job } from 'node-schedule';
 import type { LogContext } from './logger';
@@ -13,23 +13,17 @@ export interface WebsiteChange {
   competitorId: number;
   content: string;
   contentHash: string;
-  changes?: DiffPart[];
+  changes?: Change[];
   changeType: string | undefined;
   snapshotDate: Date;
   isReported: boolean;
   createdAt: Date;
 }
 
-interface DiffPart {
-  added?: boolean;
-  removed?: boolean;
-  value: string;
-}
-
 interface WebhookPayload {
   competitorId: number;
   changeType: string | undefined;
-  changes: DiffPart[] | undefined;
+  changes: Change[] | undefined;
   timestamp: string;
   snapshotDate: Date;
   contentHash: string;
@@ -61,9 +55,9 @@ export async function calculateContentHash(content: string): Promise<string> {
   return crypto.createHash('sha256').update(content).digest('hex');
 }
 
-export async function detectChanges(newContent: string, oldContent: string): Promise<DiffPart[]> {
+export async function detectChanges(newContent: string, oldContent: string): Promise<Change[]> {
   const differences = diffWords(oldContent, newContent);
-  return differences.filter((part: DiffPart) => part.added || part.removed);
+  return differences.filter((part: Change) => part.added || part.removed);
 }
 
 async function notifyWebhook(change: WebsiteChange): Promise<void> {
