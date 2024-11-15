@@ -14,7 +14,7 @@ const app = express();
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
     ? process.env.CLIENT_URL || false
-    : 'http://localhost:3000', // Updated port for development
+    : 'http://localhost:3000',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -25,7 +25,6 @@ app.use(express.json({
   verify: (req: Request, _res, buf) => {
     try {
       JSON.parse(buf.toString());
-      // Log request body in development
       if (process.env.NODE_ENV === 'development') {
         logger.logRequestBody(JSON.parse(buf.toString()), {
           requestId: req.requestId,
@@ -82,10 +81,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   const startTime = Date.now();
   const requestId = Math.random().toString(36).substring(7);
   
-  // Attach request ID to the request object for correlation
   req.requestId = requestId;
   
-  // Log request start
   logger.info('Request started', {
     requestId,
     method: req.method,
@@ -146,7 +143,6 @@ app.use('/api', (req: Request, res: Response, next: NextFunction) => {
   const now = Date.now();
   const windowStart = now - RATE_LIMIT_WINDOW;
   
-  // Clean up old entries
   const entriesToDelete: string[] = [];
   requestCounts.forEach((data, ip) => {
     if (data.timestamp < windowStart) {
@@ -155,10 +151,8 @@ app.use('/api', (req: Request, res: Response, next: NextFunction) => {
   });
   entriesToDelete.forEach(ip => requestCounts.delete(ip));
   
-  // Get or create rate limit data for this IP
   const rateData = requestCounts.get(clientIP) ?? { count: 0, timestamp: now };
   
-  // Reset count if outside window
   if (rateData.timestamp < windowStart) {
     rateData.count = 0;
     rateData.timestamp = now;
@@ -190,7 +184,33 @@ app.use('/api', (req: Request, res: Response, next: NextFunction) => {
 });
 
 const server = createServer(app);
-const PORT = parseInt(process.env.PORT || '3000', 10); // Updated port
+
+// Port configuration with fallback mechanism
+const DEFAULT_PORT = parseInt(process.env.PORT || '3000', 10);
+const MAX_PORT_ATTEMPTS = 10;
+
+async function tryPort(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const testServer = server.listen(port, '0.0.0.0', () => {
+      testServer.close(() => resolve(true));
+    });
+
+    testServer.on('error', () => {
+      resolve(false);
+    });
+  });
+}
+
+async function findAvailablePort(startPort: number): Promise<number> {
+  for (let port = startPort; port < startPort + MAX_PORT_ATTEMPTS; port++) {
+    logger.info(`Attempting to bind to port ${port}...`);
+    if (await tryPort(port)) {
+      return port;
+    }
+    logger.info(`Port ${port} is in use, trying next port...`);
+  }
+  throw new Error(`No available ports found between ${startPort} and ${startPort + MAX_PORT_ATTEMPTS - 1}`);
+}
 
 // API 404 handler - after routes but before error handler
 app.use('/api/*', (req: Request, res: Response) => {
@@ -228,14 +248,12 @@ app.use('/api', (err: any, req: Request, res: Response, _next: NextFunction) => 
 
   logger.error('API error', err, errorContext);
 
-  // Include correlation ID and timestamp in all error responses
   const baseErrorResponse = {
     status: "error",
     requestId: req.requestId,
     timestamp: new Date().toISOString()
   };
 
-  // Handle different types of errors
   if (err instanceof APIError) {
     return res.status(err.statusCode).json({
       ...baseErrorResponse,
@@ -244,7 +262,6 @@ app.use('/api', (err: any, req: Request, res: Response, _next: NextFunction) => 
     });
   }
 
-  // Handle validation errors
   if (err.name === 'ValidationError' || err.name === 'ZodError') {
     return res.status(400).json({
       ...baseErrorResponse,
@@ -253,7 +270,6 @@ app.use('/api', (err: any, req: Request, res: Response, _next: NextFunction) => 
     });
   }
 
-  // Handle database errors
   if (err.code && err.code.startsWith('23')) {
     const dbErrorContext = {
       ...errorContext,
@@ -269,7 +285,6 @@ app.use('/api', (err: any, req: Request, res: Response, _next: NextFunction) => 
     });
   }
 
-  // Default error response
   const status = err.status || err.statusCode || 500;
   res.status(status).json({
     ...baseErrorResponse,
@@ -304,7 +319,6 @@ function gracefulShutdown(signal: string) {
     process.exit(0);
   });
 
-  // Force close after 10s
   setTimeout(() => {
     logger.error('Could not close connections in time, forcefully shutting down', null, {
       signal,
@@ -318,10 +332,9 @@ function gracefulShutdown(signal: string) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// Setup Vite middleware and start server
+// Setup Vite middleware and start server with port fallback
 (async () => {
   try {
-    // Wait for database before starting server
     const dbReady = await waitForDatabase();
     if (!dbReady) {
       logger.error('Failed to connect to database after retries', null, {
@@ -332,7 +345,8 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
       process.exit(1);
     }
 
-    server.listen(PORT, () => {
+    const port = await findAvailablePort(DEFAULT_PORT);
+    server.listen(port, '0.0.0.0', () => {
       const time = new Date().toLocaleTimeString("en-US", {
         hour: "2-digit",
         minute: "2-digit",
@@ -340,7 +354,7 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
         hour12: true,
       });
       logger.info(`Server started`, {
-        port: PORT,
+        port,
         nodeEnv: process.env.NODE_ENV,
         startTime: time,
         timestamp: new Date().toISOString()
