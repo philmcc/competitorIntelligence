@@ -22,7 +22,9 @@ export const competitors = pgTable('competitors', {
 
 export const websiteResearchResults = pgTable('website_research_results', {
   id: serial('id').primaryKey(),
-  competitorId: integer('competitor_id').references(() => competitors.id).notNull(),
+  competitorId: integer('competitor_id')
+    .notNull()
+    .references(() => competitors.id),
   currentText: text('current_text').notNull(),
   changesMade: boolean('changes_made').notNull(),
   changeDetails: text('change_details'),

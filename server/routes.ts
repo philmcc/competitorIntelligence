@@ -1,7 +1,7 @@
 import { Express, Request, Response, NextFunction } from "express";
 import { setupAuth } from "./auth";
-import { db } from "../db";
-import { competitors, reports, subscriptions, users, researchModules, userModules, websiteChanges, websiteResearchResults } from "../db/schema";
+import { db } from "db";
+import { competitors, reports, subscriptions, users, researchModules, userModules, websiteChanges, websiteResearchResults } from "db/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { createCustomer, createSubscription, cancelSubscription } from "./stripe";
 import Stripe from "stripe";
@@ -907,34 +907,56 @@ export function registerRoutes(app: Express) {
       const { competitorId } = req.params;
       const { website } = req.body;
 
-      // Call the webhook
+      // Get the most recent research result for this competitor
+      const previousRun = await db
+        .select()
+        .from(websiteResearchResults)
+        .where(eq(websiteResearchResults.competitorId, parseInt(competitorId)))
+        .orderBy(desc(websiteResearchResults.runDate))
+        .limit(1);
+
+      const previousText = previousRun?.[0]?.currentText || 'no previous run';
+
+      // Create webhook payload
+      const webhookPayload = { 
+        url: website,
+        'old-website-text': previousText
+      };
+
+      // Log the payload
+      console.log('Sending webhook payload:', JSON.stringify(webhookPayload, null, 2));
+
+      // Call the webhook with both the URL and previous text
       const webhookResponse = await fetch('https://hook.eu2.make.com/q7tdf62gsing7fpf6bsepecx2fd6bvws', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ website }),
+        body: JSON.stringify(webhookPayload),
       });
 
       if (!webhookResponse.ok) {
         throw new Error('Webhook call failed');
       }
 
-      const [textResult, changesResult] = await webhookResponse.json();
+      const result = await webhookResponse.json();
+      
+      // Log the response
+      console.log('Webhook response:', JSON.stringify(result, null, 2));
 
-      // Store the results
-      const result = await db.insert(websiteResearchResults).values({
+      // Store the results with the new response format
+      const dbResult = await db.insert(websiteResearchResults).values({
         competitorId: parseInt(competitorId),
-        currentText: textResult.text,
-        changesMade: changesResult.changesMade === 'yes',
-        changeDetails: changesResult.detail,
+        currentText: result['website-text'],
+        changesMade: result.changes === 'yes',
+        changeDetails: result.details,
       }).returning();
 
       res.json({
         status: 'success',
         data: {
-          changesMade: changesResult.changesMade === 'yes',
-          changeDetails: changesResult.detail,
+          changesMade: result.changes === 'yes',
+          changeDetails: result.details,
         },
       });
 

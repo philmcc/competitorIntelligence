@@ -90,7 +90,7 @@ export default function UserCompetitors() {
             "No changes detected",
         });
       } else {
-        throw new Error(data.message);
+        throw new Error(data.message || 'Unknown error occurred');
       }
     } catch (error) {
       toast({
@@ -98,6 +98,7 @@ export default function UserCompetitors() {
         description: error instanceof Error ? error.message : "An unexpected error occurred",
         variant: "destructive",
       });
+      console.error('Research error:', error);
     } finally {
       setRunningResearch(null);
     }
