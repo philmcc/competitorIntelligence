@@ -1,7 +1,7 @@
 import { Express, Request, Response, NextFunction } from "express";
 import { setupAuth } from "./auth";
 import { db } from "db";
-import { competitors, reports, subscriptions, users, researchModules, userModules, websiteChanges, researchSettings } from "db/schema";
+import { competitors, reports, subscriptions, users, researchModules, userModules, websiteChanges } from "db/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { createCustomer, createSubscription, cancelSubscription } from "./stripe";
 import Stripe from "stripe";
@@ -11,34 +11,7 @@ import { APIError } from "./errors";
 import { requireAdmin } from "./middleware/admin";
 import { moduleSchema, moduleUpdateSchema } from "./schemas";
 import { trackWebsiteChanges, trackAllCompetitors } from './utils/website-tracker';
-import * as schedule from 'node-schedule';
-
-// Default settings for website changes module
-const DEFAULT_WEBSITE_CHANGES_SETTINGS = {
-  model: "gpt-4",
-  prompt_template: `Analyze the following website content changes and provide insights:
-1. Summarize the main changes
-2. Identify potential business implications
-3. Highlight any significant updates or announcements
-
-Changes:
-{{changes}}`,
-  schedule: "0 */6 * * *" // Every 6 hours
-};
-
-// Add settings validation schema
-const settingsSchema = z.object({
-  moduleId: z.number(),
-  name: z.string(),
-  value: z.record(z.any())
-});
-
-// Add OpenAI config schema
-const openAIConfigSchema = z.object({
-  model: z.string(),
-  prompt_template: z.string(),
-  schedule: z.string().optional()
-});
+import { scheduleJob } from 'node-schedule';
 
 // Validation schemas
 const competitorSchema = z.object({
@@ -84,7 +57,7 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
       throw new Error("Empty response from webhook");
     }
     
-    let responseData = JSON.parse(rawResponse);
+    const responseData = JSON.parse(rawResponse);
 
     if (!responseData || typeof responseData !== 'object') {
       throw new APIError(400, "Invalid response format: expected JSON object");
@@ -99,8 +72,8 @@ async function discoverCompetitors(websiteUrl: string): Promise<Array<{name: str
     }
 
     return responseData.competitors
-      .filter((comp: any) => comp && typeof comp === 'object' && comp.url)
-      .map((comp: any) => ({
+      .filter(comp => comp && typeof comp === 'object' && comp.url)
+      .map(comp => ({
         name: new URL(comp.url).hostname.replace(/^www\./, ''),
         website: comp.url,
         reason: comp.reason || ''
@@ -531,17 +504,6 @@ export function registerRoutes(app: Express) {
         })
         .returning();
 
-      // If it's a website changes module, insert default settings
-      if (module && module.name === "Website Change Tracking") {
-        await db.insert(researchSettings).values({
-          moduleId: module.id,
-          name: "openai_config",
-          value: DEFAULT_WEBSITE_CHANGES_SETTINGS,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        });
-      }
-
       res.json({
         status: "success",
         data: module,
@@ -555,59 +517,6 @@ export function registerRoutes(app: Express) {
       throw new APIError(500, "Failed to create research module", 
         error instanceof Error ? [{ 
           code: "create_error", 
-          message: error.message 
-        }] : undefined
-      );
-    }
-  }));
-
-  app.get("/api/admin/settings/:moduleId", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
-    const moduleId = parseInt(req.params.moduleId);
-    
-    if (isNaN(moduleId)) {
-      throw new APIError(400, "Invalid module ID");
-    }
-
-    try {
-      // Get existing settings
-      let settings = await db
-        .select()
-        .from(researchSettings)
-        .where(eq(researchSettings.moduleId, moduleId));
-
-      // If no settings exist, create default settings for website changes module
-      if (settings.length === 0) {
-        const [module] = await db
-          .select()
-          .from(researchModules)
-          .where(eq(researchModules.id, moduleId));
-
-        if (module && module.name === "Website Change Tracking") {
-          const [defaultSettings] = await db
-            .insert(researchSettings)
-            .values({
-              moduleId,
-              name: "openai_config",
-              value: DEFAULT_WEBSITE_CHANGES_SETTINGS,
-              createdAt: new Date(),
-              updatedAt: new Date()
-            })
-            .returning();
-          
-          settings = [defaultSettings];
-        }
-      }
-
-      res.json({
-        status: "success",
-        data: settings,
-        requestId: req.requestId,
-        timestamp: new Date().toISOString()
-      });
-    } catch (error) {
-      throw new APIError(500, "Failed to fetch module settings", 
-        error instanceof Error ? [{ 
-          code: "fetch_error", 
           message: error.message 
         }] : undefined
       );
@@ -790,127 +699,13 @@ export function registerRoutes(app: Express) {
   }));
 
   // Schedule daily website tracking
-  schedule.scheduleJob('0 0 * * *', async () => {
+  scheduleJob('0 0 * * *', async () => {
+    console.log('Running scheduled website tracking...');
     try {
       await trackAllCompetitors();
+      console.log('Scheduled website tracking completed successfully');
     } catch (error) {
       console.error('Error in scheduled website tracking:', error);
     }
   });
-
-  // Settings Management Routes
-  app.get("/api/admin/settings/:moduleId", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
-    const moduleId = parseInt(req.params.moduleId);
-    
-    try {
-      const settings = await db
-        .select()
-        .from(researchSettings)
-        .where(eq(researchSettings.moduleId, moduleId));
-
-      if (!settings.length) {
-        // If no settings exist for website changes module, return default settings
-        const [module] = await db
-          .select()
-          .from(researchModules)
-          .where(eq(researchModules.id, moduleId));
-
-        if (module && module.name === "Website Change Tracking") {
-          return res.json({
-            status: "success",
-            data: [{
-              moduleId,
-              name: "openai_config",
-              value: DEFAULT_WEBSITE_CHANGES_SETTINGS
-            }]
-          });
-        }
-      }
-
-      res.json({
-        status: "success",
-        data: settings
-      });
-    } catch (error) {
-      throw new APIError(500, "Failed to fetch settings");
-    }
-  }));
-
-  app.put("/api/admin/settings/:moduleId", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
-    const validation = settingsSchema.safeParse(req.body);
-    
-    if (!validation.success) {
-      throw new APIError(400, "Validation failed", validation.error.errors);
-    }
-
-    const { moduleId, name, value } = validation.data;
-
-    try {
-      // Check if settings exist
-      const [existingSettings] = await db
-        .select()
-        .from(researchSettings)
-        .where(
-          and(
-            eq(researchSettings.moduleId, moduleId),
-            eq(researchSettings.name, name)
-          )
-        );
-
-      let updatedSettings;
-      
-      if (existingSettings) {
-        // Update existing settings
-        [updatedSettings] = await db
-          .update(researchSettings)
-          .set({
-            value,
-            updatedAt: new Date()
-          })
-          .where(eq(researchSettings.id, existingSettings.id))
-          .returning();
-      } else {
-        // Create new settings
-        [updatedSettings] = await db
-          .insert(researchSettings)
-          .values({
-            moduleId,
-            name,
-            value,
-            createdAt: new Date(),
-            updatedAt: new Date()
-          })
-          .returning();
-      }
-
-      res.json({
-        status: "success",
-        data: updatedSettings
-      });
-    } catch (error) {
-      throw new APIError(500, "Failed to update settings");
-    }
-  }));
-
-  // Add tracking status endpoint
-  app.get("/api/admin/tracking/status", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
-    const [settings] = await db
-      .select()
-      .from(researchSettings)
-      .where(
-        and(
-          eq(researchSettings.name, 'openai_config')
-        )
-      );
-
-    const config = settings?.value as { schedule?: string } || {};
-
-    res.json({
-      status: "success",
-      data: {
-        enabled: true,
-        schedule: config.schedule || '0 */6 * * *'
-      }
-    });
-  }));
 }
