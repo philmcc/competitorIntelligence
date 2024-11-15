@@ -8,7 +8,7 @@ channel = "stable-24_05"
 [deployment]
 deploymentTarget = "cloudrun"
 build = ["npm", "run", "build"]
-run = ["sh", "-c", "PORT=3001 npm run dev"]
+run = ["sh", "-c", "npx vite --host 0.0.0.0 --port 5173"]
 
 [[ports]]
 localPort = 3000
@@ -25,6 +25,10 @@ externalPort = 3002
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[[ports]]
+localPort = 5173
+externalPort = 5173
 
 [packager]
 language = "nodejs"
@@ -63,5 +67,5 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=3001 npm run dev"
-waitForPort = 3001
+args = "npx vite --host 0.0.0.0 --port 5173"
+waitForPort = 5173
