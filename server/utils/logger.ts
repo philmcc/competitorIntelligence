@@ -1,6 +1,6 @@
 type LogLevel = 'info' | 'warn' | 'error' | 'debug';
 
-export interface LogContext {
+interface LogContext {
   userId?: number;
   path?: string;
   method?: string;
@@ -17,14 +17,14 @@ class Logger {
     const requestId = context?.requestId ? `[${context.requestId}]` : '';
     const userId = context?.userId ? `[User:${context.userId}]` : '';
     const path = context?.path ? `[${context.path}]` : '';
-    const methodStr = context?.method ? `[${context.method}]` : '';
-    const statusStr = context?.statusCode ? `[${context.statusCode}]` : '';
+    const method = context?.method ? `[${context.method}]` : '';
+    const statusCode = context?.statusCode ? `[${context.statusCode}]` : '';
     
     // Remove sensitive fields before logging
     const sanitizedContext = context ? this.sanitizeContext(context) : {};
     const contextStr = Object.keys(sanitizedContext).length ? JSON.stringify(sanitizedContext) : '';
     
-    return `[${timestamp}] ${level.toUpperCase()} ${requestId}${userId}${methodStr}${path}${statusStr}: ${message} ${contextStr}`;
+    return `[${timestamp}] ${level.toUpperCase()} ${requestId}${userId}${method}${path}${statusCode}: ${message} ${contextStr}`;
   }
 
   private sanitizeContext(context: LogContext): LogContext {
@@ -75,6 +75,7 @@ class Logger {
     }
   }
 
+  // Log request body in development
   logRequestBody(body: any, context?: LogContext) {
     if (process.env.NODE_ENV !== 'production') {
       const sanitizedBody = this.sanitizeContext(body);
@@ -85,6 +86,7 @@ class Logger {
     }
   }
 
+  // Log file system operations
   logFileAccess(operation: string, path: string, context?: LogContext) {
     this.info(`File system ${operation}`, {
       ...context,

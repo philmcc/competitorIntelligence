@@ -14,7 +14,7 @@ const app = express();
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
     ? process.env.CLIENT_URL || false
-    : 'http://localhost:5000', // Client port
+    : 'http://localhost:3000', // Updated port for development
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -190,7 +190,7 @@ app.use('/api', (req: Request, res: Response, next: NextFunction) => {
 });
 
 const server = createServer(app);
-const PORT = parseInt(process.env.PORT || '5000', 10); // Server port
+const PORT = parseInt(process.env.PORT || '3000', 10); // Updated port
 
 // API 404 handler - after routes but before error handler
 app.use('/api/*', (req: Request, res: Response) => {
