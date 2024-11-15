@@ -1,7 +1,7 @@
 import { Express, Request, Response, NextFunction } from "express";
 import { setupAuth } from "./auth";
-import { db } from "db";
-import { competitors, reports, subscriptions, users, researchModules, userModules, websiteChanges } from "db/schema";
+import { db } from "../db";
+import { competitors, reports, subscriptions, users, researchModules, userModules, websiteChanges, websiteResearchResults } from "../db/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { createCustomer, createSubscription, cancelSubscription } from "./stripe";
 import Stripe from "stripe";
@@ -12,7 +12,6 @@ import { requireAdmin } from "./middleware/admin";
 import { moduleSchema, moduleUpdateSchema } from "./schemas";
 import { trackWebsiteChanges, trackAllCompetitors } from './utils/website-tracker';
 import { scheduleJob } from 'node-schedule';
-import { websiteResearchResults } from "../db/schema";
 
 // Validation schemas
 const competitorSchema = z.object({

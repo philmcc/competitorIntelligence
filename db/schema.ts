@@ -51,6 +51,15 @@ export const competitors = pgTable("competitors", {
   createdAt: timestamp("created_at").defaultNow().notNull()
 });
 
+export const websiteResearchResults = pgTable('website_research_results', {
+  id: serial('id').primaryKey(),
+  competitorId: integer('competitor_id').references(() => competitors.id).notNull(),
+  currentText: text('current_text').notNull(),
+  changesMade: boolean('changes_made').notNull(),
+  changeDetails: text('change_details'),
+  runDate: timestamp('run_date').defaultNow().notNull(),
+});
+
 export const reports = pgTable("reports", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: integer("user_id").notNull().references(() => users.id),
@@ -70,6 +79,20 @@ export const researchModules = pgTable("research_modules", {
   updatedAt: timestamp("updated_at").defaultNow().notNull()
 });
 
+export const userModules = pgTable("user_modules", {
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  moduleId: integer("module_id")
+    .notNull()
+    .references(() => researchModules.id, { onDelete: "cascade" }),
+  isEnabled: boolean("is_enabled").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull()
+}, (table) => ({
+  pk: primaryKey({ columns: [table.userId, table.moduleId] })
+}));
+
+// Create schemas for all tables
 export const insertUserSchema = createInsertSchema(users);
 export const selectUserSchema = createSelectSchema(users);
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -90,24 +113,17 @@ export const selectReportSchema = createSelectSchema(reports);
 export type InsertReport = z.infer<typeof insertReportSchema>;
 export type Report = z.infer<typeof selectReportSchema>;
 
-export const userModules = pgTable("user_modules", {
-  userId: integer("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  moduleId: integer("module_id")
-    .notNull()
-    .references(() => researchModules.id, { onDelete: "cascade" }),
-  isEnabled: boolean("is_enabled").default(false).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull()
-}, (table) => ({
-  pk: primaryKey({ columns: [table.userId, table.moduleId] })
-}));
-
 export const websiteChangesSchema = createInsertSchema(websiteChanges);
 export const selectWebsiteChangesSchema = createSelectSchema(websiteChanges);
 export type InsertWebsiteChange = z.infer<typeof websiteChangesSchema>;
 export type WebsiteChange = z.infer<typeof selectWebsiteChangesSchema>;
 
+export const websiteResearchResultsSchema = createInsertSchema(websiteResearchResults);
+export const selectWebsiteResearchResultsSchema = createSelectSchema(websiteResearchResults);
+export type InsertWebsiteResearchResults = z.infer<typeof websiteResearchResultsSchema>;
+export type WebsiteResearchResults = z.infer<typeof selectWebsiteResearchResultsSchema>;
+
+// Relations
 export const researchModulesRelations = relations(researchModules, ({ many }) => ({
   userModules: many(userModules)
 }));

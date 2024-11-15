@@ -44,10 +44,3 @@ export const websiteResearchResultsRelations = relations(websiteResearchResults,
     references: [competitors.id],
   }),
 }));
-
-// Make sure to export everything
-export {
-  users,
-  competitors,
-  websiteResearchResults,
-}; 
