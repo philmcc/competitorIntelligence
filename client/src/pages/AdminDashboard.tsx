@@ -73,6 +73,39 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleTrustpilotResearch = async (competitorId: number) => {
+    setTrustpilotLoading((prev) => ({ ...prev, [competitorId]: true }));
+    try {
+      const response = await fetch(`/api/admin/competitors/${competitorId}/trustpilot-research`, {
+        method: "POST",
+      });
+
+      const result = await response.json();
+
+      if (result.status === "success") {
+        toast({
+          title: "Trustpilot Analysis Complete",
+          description: "The Trustpilot review analysis has been successfully completed.",
+        });
+        // Optionally, refresh research history or competitor data
+        await mutate("/api/competitors");
+      } else {
+        throw new Error(result.message || "Failed to complete Trustpilot analysis");
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "An unexpected error occurred",
+        variant: "destructive",
+      });
+      console.error("Trustpilot Research Error:", error);
+    } finally {
+      setTrustpilotLoading((prev) => ({ ...prev, [competitorId]: false }));
+    }
+  };
+
+  const [trustpilotLoading, setTrustpilotLoading] = useState<Record<number, boolean>>({});
+
   if (isLoading) {
     return (
       <Layout>
