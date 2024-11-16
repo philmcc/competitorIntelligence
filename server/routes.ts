@@ -12,7 +12,6 @@ import { requireAdmin } from "./middleware/admin";
 import { moduleSchema, moduleUpdateSchema } from "./schemas";
 import { trackWebsiteChanges, trackAllCompetitors } from './utils/website-tracker';
 import { scheduleJob } from 'node-schedule';
-import { asyncHandler } from "./utils/asyncHandler";
 
 // Validation schemas
 const competitorSchema = z.object({
@@ -1027,89 +1026,4 @@ export function registerRoutes(app: Express) {
       });
     }
   });
-
-  app.post("/api/admin/competitors/:competitorId/trustpilot-research", requireAdmin, asyncHandler(async (req: Request, res: Response) => {
-    const { competitorId } = req.params;
-
-    // Fetch competitor details
-    const competitor = await db
-      .select()
-      .from(competitors)
-      .where(eq(competitors.id, parseInt(competitorId)))
-      .limit(1)
-      .then(rows => rows[0]);
-
-    if (!competitor) {
-      return res.status(404).json({ status: 'error', message: 'Competitor not found' });
-    }
-
-    let trustpilotUrl = competitor.trustpilotReviewUrl;
-
-    // Step 1: Check if Trustpilot URL exists
-    if (!trustpilotUrl) {
-      const discoveryWebhookUrl = 'https://hook.eu2.make.com/des6gfa096l3fximks5myjt92d7f8fl3';
-
-      const discoveryResponse = await fetch(discoveryWebhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ website_url: competitor.website }),
-      });
-
-      if (!discoveryResponse.ok) {
-        throw new Error('Failed to retrieve Trustpilot URL');
-      }
-
-      const discoveryData = await discoveryResponse.json();
-
-      trustpilotUrl = discoveryData.trustpilot_review_url;
-
-      if (!trustpilotUrl) {
-        throw new Error('Trustpilot URL not provided in response');
-      }
-
-      // Update competitor with Trustpilot URL
-      await db
-        .update(competitors)
-        .set({ trustpilot_review_url: trustpilotUrl })
-        .where(eq(competitors.id, parseInt(competitorId)));
-    }
-
-    // Step 2: Call the analysis webhook
-    const analysisWebhookUrl = 'https://hook.eu2.make.com/lbx354i2jyw0j738hpysbz0awokd7ltg';
-
-    const analysisResponse = await fetch(analysisWebhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: trustpilotUrl }),
-    });
-
-    if (!analysisResponse.ok) {
-      throw new Error('Failed to retrieve Trustpilot analysis');
-    }
-
-    const analysisData = await analysisResponse.json();
-
-    const analysis = analysisData.analysis;
-
-    if (!analysis) {
-      throw new Error('Analysis data not found in response');
-    }
-
-    // Step 3: Store the analysis result
-    await db.insert(websiteResearchResults).values({
-      competitorId: parseInt(competitorId),
-      currentText: analysis, // Assuming 'currentText' holds analysis data for consistency
-      changesMade: false, // Since this is different from website changes
-      changeDetails: JSON.stringify(analysis),
-      module: 'trustpilot-analysis',
-    });
-
-    res.json({
-      status: 'success',
-      data: {
-        analysis,
-        runDate: new Date(),
-      },
-    });
-  }));
 }

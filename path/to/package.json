@@ -1,8 +1,0 @@
-{
-  "name": "competitor-intelligence",
-  "version": "1.0.0",
-  "scripts": {
-    "start": "node index.js",
-    "migrate": "knex migrate:latest"
-  }
-} 
