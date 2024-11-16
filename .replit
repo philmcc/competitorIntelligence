@@ -30,6 +30,10 @@ externalPort = 80
 localPort = 5173
 externalPort = 5173
 
+[[ports]]
+localPort = 24678
+externalPort = 3003
+
 [packager]
 language = "nodejs"
   [packager.features]
@@ -55,8 +59,46 @@ author = "agent"
 task = "workflow.run"
 args = "Development Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Backend Server"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Frontend Server"
+
 [[workflows.workflow]]
 name = "Development Server"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx vite --host 0.0.0.0 --port 5173"
+waitForPort = 5173
+
+[[workflows.workflow]]
+name = "Backend Server"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "NODE_ENV=development tsx watch server/index.ts"
+waitForPort = 3000
+
+[[workflows.workflow]]
+name = "Frontend Server"
 author = "agent"
 
 [workflows.workflow.metadata]

@@ -1,14 +1,16 @@
 import passport from "passport";
 import { IVerifyOptions, Strategy as LocalStrategy } from "passport-local";
-import { type Express } from "express";
+import { type Express, Request, Response, NextFunction } from "express";
 import session from "express-session";
 import createMemoryStore from "memorystore";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
-import { users, insertUserSchema, type User as SelectUser } from "db/schema";
+import { users, insertUserSchema, loginUserSchema, type User as SelectUser } from "db/schema";
 import { db } from "db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { APIError } from "./errors";
+import { logger } from "./utils/logger";
 
 const scryptAsync = promisify(scrypt);
 const crypto = {
@@ -29,32 +31,87 @@ const crypto = {
   },
 };
 
-// extend express user object with our schema
 declare global {
   namespace Express {
     interface User extends SelectUser {}
   }
 }
 
-// Create a separate schema for login
-const loginUserSchema = z.object({
-  username: z.string(),
-  password: z.string()
-});
+// Enhanced response handler with consistent format and headers
+const handleAuthResponse = (res: Response, status: number, message: string, data?: any) => {
+  // Always set content type and other security headers
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  
+  const response = {
+    status: status < 400 ? "success" : "error",
+    message,
+    ...(data && { data }),
+    timestamp: new Date().toISOString(),
+    requestId: res.locals.requestId
+  };
+
+  return res.status(status).json(response);
+};
+
+// Enhanced error handler for authentication routes
+const handleAuthError = (err: any, req: Request, res: Response) => {
+  const errorContext = {
+    error: err.message,
+    path: req.path,
+    method: req.method,
+    ip: req.ip,
+    requestId: res.locals.requestId,
+    timestamp: new Date().toISOString()
+  };
+
+  logger.error('Authentication error:', errorContext);
+
+  if (err instanceof z.ZodError) {
+    return handleAuthResponse(res, 400, "Validation failed", {
+      errors: err.errors.map(e => ({
+        field: e.path.join('.'),
+        message: e.message
+      }))
+    });
+  }
+
+  if (err instanceof APIError) {
+    return handleAuthResponse(res, err.statusCode, err.message, {
+      errors: err.errors
+    });
+  }
+
+  if (err instanceof SyntaxError && 'body' in err) {
+    logger.error('JSON parsing error:', {
+      ...errorContext,
+      contentType: req.get('content-type')
+    });
+    
+    return handleAuthResponse(res, 400, "Invalid JSON payload", {
+      error: process.env.NODE_ENV === 'development' ? err.message : "Malformed request data"
+    });
+  }
+
+  return handleAuthResponse(res, 500, "Authentication failed");
+};
 
 export function setupAuth(app: Express) {
+  console.log('Setting up auth routes...');
+
   const MemoryStore = createMemoryStore(session);
   const sessionSettings: session.SessionOptions = {
-    secret: process.env.REPL_ID || "porygon-supremacy",
-    resave: true,
-    saveUninitialized: true,
+    secret: process.env.SESSION_SECRET || process.env.REPL_ID || "development-secret",
+    resave: false,
+    saveUninitialized: false,
     cookie: {
       secure: app.get("env") === "production",
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      maxAge: 24 * 60 * 60 * 1000,
+      sameSite: 'lax'
     },
     store: new MemoryStore({
-      checkPeriod: 86400000, // prune expired entries every 24h
+      checkPeriod: 86400000,
     }),
   };
 
@@ -63,15 +120,41 @@ export function setupAuth(app: Express) {
   }
 
   app.use(session(sessionSettings));
-  app.use((req, res, next) => {
-    if (!req.session) {
-      return next(new Error('Session initialization failed'));
-    }
-    next();
-  });
-  
   app.use(passport.initialize());
   app.use(passport.session());
+
+  // Request ID middleware for better error tracking
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    res.locals.requestId = `auth-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    next();
+  });
+
+  // JSON parsing error handler middleware for auth routes
+  const handleJsonParsingError = (err: Error, req: Request, res: Response, next: NextFunction) => {
+    if (err instanceof SyntaxError && "body" in err) {
+      logger.error("JSON parsing error in auth route:", {
+        error: err.message,
+        path: req.path,
+        method: req.method,
+        contentType: req.get("content-type"),
+        ip: req.ip,
+        requestId: res.locals.requestId,
+        timestamp: new Date().toISOString()
+      });
+
+      return handleAuthResponse(res, 400, "Invalid JSON payload", {
+        error: process.env.NODE_ENV === "development" ? err.message : "Malformed request data",
+        details: {
+          contentType: req.get("content-type"),
+          expectedType: "application/json"
+        }
+      });
+    }
+    next(err);
+  };
+
+  // Apply JSON parsing error handler to auth routes
+  app.use(["/register", "/login"], handleJsonParsingError);
 
   passport.use(
     new LocalStrategy(async (username, password, done) => {
@@ -83,14 +166,15 @@ export function setupAuth(app: Express) {
           .limit(1);
 
         if (!user) {
-          return done(null, false, { message: "Incorrect username." });
+          return done(null, false, { message: "Invalid credentials" });
         }
         const isMatch = await crypto.compare(password, user.password);
         if (!isMatch) {
-          return done(null, false, { message: "Incorrect password." });
+          return done(null, false, { message: "Invalid credentials" });
         }
         return done(null, user);
       } catch (err) {
+        logger.error("Authentication error:", err);
         return done(err);
       }
     })
@@ -109,27 +193,26 @@ export function setupAuth(app: Express) {
         .limit(1);
       
       if (!user) {
-        return done(new Error('User not found'));
+        return done(null, false);
       }
       
       done(null, user);
     } catch (err) {
+      logger.error("Deserialization error:", err);
       done(err);
     }
   });
 
-  app.post("/register", async (req, res, next) => {
+  app.post("/api/register", async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result = insertUserSchema.safeParse(req.body);
       if (!result.success) {
-        return res
-          .status(400)
-          .json({ message: "Invalid input", errors: result.error.flatten() });
+        return handleAuthResponse(res, 400, "Invalid input", {
+          errors: result.error.errors
+        });
       }
 
       const { username, password, email } = result.data;
-
-      // Check if user already exists
       const [existingUser] = await db
         .select()
         .from(users)
@@ -137,13 +220,10 @@ export function setupAuth(app: Express) {
         .limit(1);
 
       if (existingUser) {
-        return res.status(400).json({ message: "Username already exists" });
+        return handleAuthResponse(res, 409, "Username already exists");
       }
 
-      // Hash the password
       const hashedPassword = await crypto.hash(password);
-
-      // Create the new user
       const [newUser] = await db
         .insert(users)
         .values({
@@ -154,70 +234,79 @@ export function setupAuth(app: Express) {
         })
         .returning();
 
-      // Log the user in after registration
       req.login(newUser, (err) => {
         if (err) {
           return next(err);
         }
-        return res.json({
-          message: "Registration successful",
-          user: { id: newUser.id, username: newUser.username, email: newUser.email }
+        handleAuthResponse(res, 200, "Registration successful", {
+          id: newUser.id,
+          username: newUser.username,
+          email: newUser.email
         });
       });
     } catch (error) {
-      next(error);
+      handleAuthError(error, req, res);
     }
   });
 
-  app.post("/login", (req, res, next) => {
-    const result = loginUserSchema.safeParse(req.body);
-    if (!result.success) {
-      return res
-        .status(400)
-        .json({ message: "Invalid input", errors: result.error.flatten() });
-    }
-
-    const cb = (err: any, user: Express.User, info: IVerifyOptions) => {
-      if (err) {
-        return next(err);
-      }
-      if (!user) {
-        return res.status(400).json({
-          message: info.message ?? "Login failed",
+  app.post("/api/login", async (req: Request, res: Response, next: NextFunction) => {
+    console.log('Login attempt received:', {
+      body: req.body,
+      headers: req.headers
+    });
+    
+    try {
+      const result = loginUserSchema.safeParse(req.body);
+      if (!result.success) {
+        return handleAuthResponse(res, 400, "Invalid input", {
+          errors: result.error.errors
         });
       }
-      req.logIn(user, (err) => {
+
+      passport.authenticate("local", (err: Error | null, user: Express.User | false, info: IVerifyOptions) => {
         if (err) {
-          return next(err);
+          return handleAuthError(err, req, res);
         }
-        return res.json({
-          message: "Login successful",
-          user: { id: user.id, username: user.username, email: user.email }
+
+        if (!user) {
+          return handleAuthResponse(res, 401, info.message ?? "Invalid credentials");
+        }
+
+        req.login(user, (loginErr) => {
+          if (loginErr) {
+            return handleAuthError(loginErr, req, res);
+          }
+
+          return handleAuthResponse(res, 200, "Login successful", {
+            id: user.id,
+            username: user.username,
+            email: user.email
+          });
         });
-      });
-    };
-    passport.authenticate("local", cb)(req, res, next);
+      })(req, res, next);
+    } catch (error) {
+      handleAuthError(error, req, res);
+    }
   });
 
-  app.post("/logout", (req, res) => {
+  app.post("/logout", (req: Request, res: Response) => {
     req.logout((err) => {
       if (err) {
-        return res.status(500).json({ message: "Logout failed" });
+        logger.error("Logout error:", {
+          error: err.message,
+          requestId: res.locals.requestId,
+          timestamp: new Date().toISOString()
+        });
+        return handleAuthResponse(res, 500, "Logout failed");
       }
-      res.json({ message: "Logout successful" });
+      handleAuthResponse(res, 200, "Logout successful");
     });
   });
 
-  app.get("/api/user", (req, res) => {
+  app.get("/api/user", (req: Request, res: Response) => {
     if (req.isAuthenticated()) {
-      return res.json({
-        status: "success",
-        data: req.user
-      });
+      return handleAuthResponse(res, 200, "User data retrieved", req.user);
     }
-    res.status(401).json({ 
-      status: "error",
-      message: "Unauthorized" 
-    });
+    handleAuthResponse(res, 401, "Unauthorized");
   });
 }

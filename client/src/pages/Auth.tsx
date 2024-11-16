@@ -18,33 +18,58 @@ export default function Auth() {
 
   const handleSubmit = async (action: "login" | "register") => {
     try {
-      const userData = action === "login" 
-        ? { username, password }
-        : { username, password, email };
+      const url = `/api/${action}`;
+      console.log('Sending request to:', url);
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ username, password })
+      });
 
-      const result = await (action === "login" ? login : register)(userData);
+      console.log('Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries())
+      });
 
-      if (result.ok) {
-        toast({ 
-          title: `${action === "login" ? "Login" : "Registration"} successful` 
-        });
-        
-        // Ensure user data is refreshed
-        await mutate("/api/user");
-        
-        // Use setLocation instead of window.location.href
-        setLocation("/dashboard");
-      } else {
-        toast({
-          title: "Error",
-          description: result.message,
-          variant: "destructive",
-        });
+      // Check if response is empty
+      const text = await response.text();
+      console.log('Raw response:', text);
+
+      if (!text) {
+        throw new Error('Empty response from server');
       }
+
+      // Try to parse the response as JSON
+      let result;
+      try {
+        result = JSON.parse(text);
+        console.log('Parsed response:', result);
+      } catch (e) {
+        console.error('JSON parse error:', e);
+        throw new Error('Invalid JSON response from server');
+      }
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Authentication failed');
+      }
+
+      toast({ 
+        title: "Login successful"
+      });
+      
+      await mutate("/api/user");
+      setLocation("/dashboard");
     } catch (error) {
+      console.error('Login error:', error);
       toast({
         title: "Error",
-        description: "An unexpected error occurred",
+        description: error instanceof Error ? error.message : "An unexpected error occurred",
         variant: "destructive",
       });
     }

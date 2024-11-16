@@ -3,298 +3,71 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic } from "./vite";
 import { createServer } from "http";
 import cors from "cors";
-import { db } from "db";
-import { sql } from "drizzle-orm";
 import { APIError } from "./errors";
 import { logger } from "./utils/logger";
+import { setupAuth } from "./auth";
 
 const app = express();
 
-// Enable CORS with proper configuration
+// Enhanced CORS configuration for development and production
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
-    ? process.env.CLIENT_URL || false
-    : 'http://localhost:3000',
+    ? process.env.CLIENT_URL || 'https://your-production-url.com'
+    : ['http://localhost:5173', 'http://127.0.0.1:5173'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  exposedHeaders: ['Content-Type'],
+  maxAge: 86400 // 24 hours
 }));
 
-// Body parsing middleware with validation logging
+// Body parsing middleware with enhanced configuration
 app.use(express.json({
-  verify: (req: Request, _res, buf) => {
-    try {
-      JSON.parse(buf.toString());
-      if (process.env.NODE_ENV === 'development') {
-        logger.logRequestBody(JSON.parse(buf.toString()), {
-          requestId: req.requestId,
-          path: req.path,
-          method: req.method
-        });
-      }
-    } catch (e) {
-      logger.error('Invalid JSON in request body', e, {
-        path: req.path,
-        method: req.method,
-        contentType: req.get('content-type'),
-        requestId: req.requestId
-      });
-      throw new APIError(400, 'Invalid JSON payload');
-    }
-  }
+  limit: '10mb',
+  strict: true,
+  type: ['application/json', 'application/*+json']
 }));
+
 app.use(express.urlencoded({ extended: false }));
 
-// Database health check middleware with retry logic
-const MAX_RETRIES = 5;
-const RETRY_DELAY = 2000; // 2 seconds
-
-async function waitForDatabase() {
-  for (let i = 0; i < MAX_RETRIES; i++) {
-    try {
-      await db.execute(sql`SELECT 1`);
-      logger.info('Database connection established successfully', {
-        attempt: i + 1,
-        totalAttempts: MAX_RETRIES
-      });
-      return true;
-    } catch (error) {
-      logger.error(`Database connection attempt ${i + 1} failed`, error, {
-        attempt: i + 1,
-        totalAttempts: MAX_RETRIES,
-        retryDelay: RETRY_DELAY
-      });
-      if (i < MAX_RETRIES - 1) {
-        logger.info(`Retrying database connection`, {
-          nextAttempt: i + 2,
-          delayMs: RETRY_DELAY
-        });
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-      }
-    }
-  }
-  return false;
-}
-
-// Enhanced request logging middleware with performance tracking
-app.use((req: Request, res: Response, next: NextFunction) => {
-  const startTime = Date.now();
-  const requestId = Math.random().toString(36).substring(7);
-  
-  req.requestId = requestId;
-  
-  logger.info('Request started', {
-    requestId,
-    method: req.method,
-    path: req.path,
-    query: req.query,
-    userAgent: req.get('user-agent'),
-    userId: req.user?.id,
-    contentType: req.get('content-type'),
-    ip: req.ip
-  });
-  
-  res.on('finish', () => {
-    const duration = Date.now() - startTime;
-    logger.info('Request completed', {
-      requestId,
-      method: req.method,
+// Enhanced global JSON parsing error handler with detailed logging
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof SyntaxError && 'body' in err) {
+    logger.error('JSON parsing error:', {
+      error: err.message,
       path: req.path,
-      statusCode: res.statusCode,
-      duration: `${duration}ms`,
-      contentLength: res.get('content-length'),
-      userAgent: req.get('user-agent'),
-      userId: req.user?.id,
-      ip: req.ip
+      method: req.method,
+      contentType: req.get('content-type'),
+      body: req.body,
+      headers: req.headers,
+      ip: req.ip,
+      timestamp: new Date().toISOString()
     });
-  });
-  
+
+    res.setHeader('Content-Type', 'application/json');
+    return res.status(400).json({
+      status: "error",
+      message: "Invalid JSON payload",
+      errors: [{
+        type: "json_parse_error",
+        message: process.env.NODE_ENV === 'development' ? err.message : "Malformed JSON request"
+      }]
+    });
+  }
+  next(err);
+});
+
+// Set JSON content type for all API responses
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Content-Type', 'application/json');
   next();
 });
 
-// Database connection middleware with enhanced error logging
-app.use(async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    await db.execute(sql`SELECT 1`);
-    next();
-  } catch (error) {
-    logger.error('Database connection failed in middleware', error, {
-      requestId: req.requestId,
-      path: req.path,
-      method: req.method,
-      userId: req.user?.id,
-      query: req.query,
-      ip: req.ip
-    });
-    next(new APIError(500, 'Database connection failed'));
-  }
-});
-
-// Add routes before error handlers
+// Setup routes
+setupAuth(app);
 registerRoutes(app);
 
-// Rate limiting middleware with logging
-const requestCounts = new Map<string, { count: number; timestamp: number }>();
-const RATE_LIMIT_WINDOW = 60000; // 1 minute
-const RATE_LIMIT_MAX = 100; // requests per minute
-
-app.use('/api', (req: Request, res: Response, next: NextFunction) => {
-  const clientIP = req.ip || 'unknown';
-  const now = Date.now();
-  const windowStart = now - RATE_LIMIT_WINDOW;
-  
-  const entriesToDelete: string[] = [];
-  requestCounts.forEach((data, ip) => {
-    if (data.timestamp < windowStart) {
-      entriesToDelete.push(ip);
-    }
-  });
-  entriesToDelete.forEach(ip => requestCounts.delete(ip));
-  
-  const rateData = requestCounts.get(clientIP) ?? { count: 0, timestamp: now };
-  
-  if (rateData.timestamp < windowStart) {
-    rateData.count = 0;
-    rateData.timestamp = now;
-  }
-  
-  rateData.count++;
-  requestCounts.set(clientIP, rateData);
-  
-  if (rateData.count > RATE_LIMIT_MAX) {
-    logger.warn('Rate limit exceeded', {
-      requestId: req.requestId,
-      clientIP,
-      count: rateData.count,
-      window: RATE_LIMIT_WINDOW,
-      limit: RATE_LIMIT_MAX,
-      path: req.path,
-      method: req.method,
-      userId: req.user?.id
-    });
-    
-    return res.status(429).json({
-      status: "error",
-      message: "Too many requests",
-      retryAfter: Math.ceil((rateData.timestamp + RATE_LIMIT_WINDOW - now) / 1000)
-    });
-  }
-  
-  next();
-});
-
 const server = createServer(app);
-
-// Port configuration with fallback mechanism
-const DEFAULT_PORT = parseInt(process.env.PORT || '3000', 10);
-const MAX_PORT_ATTEMPTS = 10;
-
-async function tryPort(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const testServer = server.listen(port, '0.0.0.0', () => {
-      testServer.close(() => resolve(true));
-    });
-
-    testServer.on('error', () => {
-      resolve(false);
-    });
-  });
-}
-
-async function findAvailablePort(startPort: number): Promise<number> {
-  for (let port = startPort; port < startPort + MAX_PORT_ATTEMPTS; port++) {
-    logger.info(`Attempting to bind to port ${port}...`);
-    if (await tryPort(port)) {
-      return port;
-    }
-    logger.info(`Port ${port} is in use, trying next port...`);
-  }
-  throw new Error(`No available ports found between ${startPort} and ${startPort + MAX_PORT_ATTEMPTS - 1}`);
-}
-
-// API 404 handler - after routes but before error handler
-app.use('/api/*', (req: Request, res: Response) => {
-  logger.info('API 404 Not Found', {
-    requestId: req.requestId,
-    path: req.path,
-    method: req.method,
-    userId: req.user?.id,
-    query: req.query,
-    ip: req.ip
-  });
-  
-  res.status(404).json({
-    status: "error",
-    message: "API endpoint not found",
-    path: req.path
-  });
-});
-
-// Enhanced API error handling middleware
-app.use('/api', (err: any, req: Request, res: Response, _next: NextFunction) => {
-  const errorContext = {
-    requestId: req.requestId,
-    path: req.path,
-    method: req.method,
-    userId: req.user?.id,
-    query: req.query,
-    statusCode: err.statusCode || 500,
-    errorType: err.constructor.name,
-    errorName: err.name,
-    timestamp: new Date().toISOString(),
-    ip: req.ip,
-    environment: process.env.NODE_ENV
-  };
-
-  logger.error('API error', err, errorContext);
-
-  const baseErrorResponse = {
-    status: "error",
-    requestId: req.requestId,
-    timestamp: new Date().toISOString()
-  };
-
-  if (err instanceof APIError) {
-    return res.status(err.statusCode).json({
-      ...baseErrorResponse,
-      message: err.message,
-      errors: err.errors
-    });
-  }
-
-  if (err.name === 'ValidationError' || err.name === 'ZodError') {
-    return res.status(400).json({
-      ...baseErrorResponse,
-      message: "Validation failed",
-      errors: err.errors || err.issues
-    });
-  }
-
-  if (err.code && err.code.startsWith('23')) {
-    const dbErrorContext = {
-      ...errorContext,
-      dbErrorCode: err.code,
-      dbErrorDetail: process.env.NODE_ENV === 'development' ? err.detail : undefined
-    };
-    logger.error('Database constraint violation', err, dbErrorContext);
-    
-    return res.status(400).json({
-      ...baseErrorResponse,
-      message: "Database constraint violation",
-      error: process.env.NODE_ENV === 'development' ? err.detail : undefined
-    });
-  }
-
-  const status = err.status || err.statusCode || 500;
-  res.status(status).json({
-    ...baseErrorResponse,
-    message: err.message || "Internal Server Error",
-    ...(process.env.NODE_ENV === 'development' && { 
-      stack: err.stack,
-      detail: err.detail 
-    })
-  });
-});
 
 // Non-API routes should be handled by Vite/Static file server
 if (process.env.NODE_ENV !== 'production') {
@@ -306,67 +79,56 @@ if (process.env.NODE_ENV !== 'production') {
   serveStatic(app);
 }
 
-// Graceful shutdown handler with enhanced logging
-function gracefulShutdown(signal: string) {
-  logger.info(`Starting graceful shutdown`, { 
-    signal,
-    activeConnections: server.getConnections((err, count) => count),
+// Enhanced error handling middleware - must be after all routes
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error('Unhandled error:', {
+    error: err.message,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
     timestamp: new Date().toISOString()
   });
   
-  server.close(() => {
-    logger.info('HTTP server closed');
-    process.exit(0);
-  });
+  // Set content type header
+  res.setHeader('Content-Type', 'application/json');
 
-  setTimeout(() => {
-    logger.error('Could not close connections in time, forcefully shutting down', null, {
-      signal,
-      timeoutMs: 10000,
-      timestamp: new Date().toISOString()
+  // Handle known error types
+  if (err instanceof APIError) {
+    return res.status(err.statusCode).json({
+      status: "error",
+      message: err.message,
+      errors: err.errors
     });
-    process.exit(1);
-  }, 10000);
-}
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-// Setup Vite middleware and start server with port fallback
-(async () => {
-  try {
-    const dbReady = await waitForDatabase();
-    if (!dbReady) {
-      logger.error('Failed to connect to database after retries', null, {
-        maxRetries: MAX_RETRIES,
-        totalDelayMs: MAX_RETRIES * RETRY_DELAY,
-        timestamp: new Date().toISOString()
-      });
-      process.exit(1);
-    }
-
-    const port = await findAvailablePort(DEFAULT_PORT);
-    server.listen(port, '0.0.0.0', () => {
-      const time = new Date().toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: true,
-      });
-      logger.info(`Server started`, {
-        port,
-        nodeEnv: process.env.NODE_ENV,
-        startTime: time,
-        timestamp: new Date().toISOString()
-      });
-    });
-  } catch (error) {
-    logger.error('Failed to start server', error, {
-      timestamp: new Date().toISOString()
-    });
-    process.exit(1);
   }
-})();
+
+  // Handle unknown errors
+  res.status(500).json({
+    status: "error",
+    message: "Internal server error",
+    ...(process.env.NODE_ENV === 'development' && { 
+      stack: err.stack,
+      timestamp: new Date().toISOString()
+    })
+  });
+});
+
+// Add this after setting up all routes
+app.use((req: Request, res: Response, next: NextFunction) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
+// Optional: Log all registered routes
+app._router.stack.forEach((r: any) => {
+  if (r.route && r.route.path) {
+    console.log(`Route registered: ${Object.keys(r.route.methods)} ${r.route.path}`);
+  }
+});
+
+// Start server
+const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+
+server.listen(port, '0.0.0.0', () => {
+  logger.info(`Server started on port ${port}`);
+});
 
 // Add types for request ID
 declare global {
