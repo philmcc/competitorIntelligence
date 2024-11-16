@@ -907,7 +907,7 @@ export function registerRoutes(app: Express) {
       const { competitorId } = req.params;
       const { website } = req.body;
 
-      // Get the most recent research result for this competitor
+      // Get the most recent research result
       const previousRun = await db
         .select()
         .from(websiteResearchResults)
@@ -917,16 +917,11 @@ export function registerRoutes(app: Express) {
 
       const previousText = previousRun?.[0]?.currentText || 'no previous run';
 
-      // Create webhook payload
       const webhookPayload = { 
         url: website,
         'old-website-text': previousText
       };
 
-      // Log the payload
-      console.log('Sending webhook payload:', JSON.stringify(webhookPayload, null, 2));
-
-      // Call the webhook with both the URL and previous text
       const webhookResponse = await fetch('https://hook.eu2.make.com/q7tdf62gsing7fpf6bsepecx2fd6bvws', {
         method: 'POST',
         headers: {
@@ -941,22 +936,21 @@ export function registerRoutes(app: Express) {
 
       const result = await webhookResponse.json();
       
-      // Log the response
-      console.log('Webhook response:', JSON.stringify(result, null, 2));
-
-      // Store the results with the new response format
+      // Store the results with the corrected changes check
       const dbResult = await db.insert(websiteResearchResults).values({
         competitorId: parseInt(competitorId),
         currentText: result['website-text'],
-        changesMade: result.changes === 'yes',
+        changesMade: result.changes.includes('Updates made'), // Fix the condition
         changeDetails: result.details,
       }).returning();
 
+      // Return properly formatted response
       res.json({
         status: 'success',
         data: {
-          changesMade: result.changes === 'yes',
+          changesMade: result.changes.includes('Updates made'), // Fix the condition
           changeDetails: result.details,
+          runDate: dbResult[0].runDate
         },
       });
 
@@ -965,6 +959,70 @@ export function registerRoutes(app: Express) {
       res.status(500).json({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to run research',
+      });
+    }
+  });
+
+  // Add this new route handler
+  app.get('/api/admin/competitors/:competitorId/research-history', requireAdmin, async (req, res) => {
+    try {
+      const { competitorId } = req.params;
+      
+      // Verify competitor exists
+      const [competitor] = await db
+        .select()
+        .from(competitors)
+        .where(eq(competitors.id, parseInt(competitorId)))
+        .limit(1);
+
+      if (!competitor) {
+        throw new APIError(404, "Competitor not found");
+      }
+
+      // Get research history
+      const history = await db
+        .select()
+        .from(websiteResearchResults)
+        .where(eq(websiteResearchResults.competitorId, parseInt(competitorId)))
+        .orderBy(desc(websiteResearchResults.runDate));
+
+      res.json({
+        status: 'success',
+        data: history
+      });
+    } catch (error) {
+      console.error('Error fetching research history:', error);
+      res.status(error instanceof APIError ? error.status : 500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to fetch research history'
+      });
+    }
+  });
+
+  // Add this endpoint to get competitor details
+  app.get('/api/admin/competitors/:competitorId', requireAdmin, async (req, res) => {
+    try {
+      const { competitorId } = req.params;
+      
+      const [competitor] = await db
+        .select()
+        .from(competitors)
+        .where(eq(competitors.id, parseInt(competitorId)))
+        .limit(1);
+
+      if (!competitor) {
+        throw new APIError(404, "Competitor not found");
+      }
+
+      res.json({
+        status: 'success',
+        data: competitor
+      });
+    } catch (error) {
+      console.error('Error fetching competitor:', error);
+      res.status(error instanceof APIError ? error.status : 500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to fetch competitor'
       });
     }
   });

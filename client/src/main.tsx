@@ -12,6 +12,7 @@ import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import AdminDashboard from "./pages/AdminDashboard";
 import UserCompetitors from "./pages/UserCompetitors";
+import CompetitorResearch from "./pages/CompetitorResearch";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -24,6 +25,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/settings" component={Settings} />
         <Route path="/admin" component={AdminDashboard} />
         <Route path="/admin/users/:userId/competitors" component={UserCompetitors} />
+        <Route path="/admin/competitors/:competitorId/research" component={CompetitorResearch} />
         <Route>404 Page Not Found</Route>
       </Switch>
       <Toaster />

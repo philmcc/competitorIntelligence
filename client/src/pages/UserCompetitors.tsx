@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
+import { Link } from "wouter";
 
 interface Competitor {
   id: number;
@@ -83,12 +84,20 @@ export default function UserCompetitors() {
       const data = await response.json();
       
       if (data.status === 'success') {
+        const { changesMade, changeDetails, runDate } = data.data;
+        
         toast({
-          title: "Research Complete",
-          description: data.data.changesMade ? 
-            `Changes detected: ${data.data.changeDetails}` : 
-            "No changes detected",
+          title: changesMade ? "Changes Detected" : "No Changes Detected",
+          description: changesMade 
+            ? `Changes found: ${changeDetails}`
+            : "No changes were detected on the website",
+          variant: changesMade ? "default" : "secondary"
         });
+        
+        // Optionally refresh the research history
+        if (typeof viewResearchHistory === 'function') {
+          await viewResearchHistory(competitorId);
+        }
       } else {
         throw new Error(data.message || 'Unknown error occurred');
       }
@@ -180,7 +189,12 @@ export default function UserCompetitors() {
                     )}
                   >
                     <TableCell className="font-medium">
-                      {competitor.name}
+                      <Link 
+                        href={`/admin/competitors/${competitor.id}/research`}
+                        className="text-blue-500 hover:underline"
+                      >
+                        {competitor.name}
+                      </Link>
                     </TableCell>
                     <TableCell>
                       <a
