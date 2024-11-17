@@ -13,7 +13,7 @@ const app = express();
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
     ? process.env.CLIENT_URL || 'https://your-production-url.com'
-    : ['http://localhost:5173', 'http://127.0.0.1:5173'],
+    : ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://0.0.0.0:5173'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
@@ -112,22 +112,16 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 // Add this after setting up all routes
 app.use((req: Request, res: Response, next: NextFunction) => {
-  console.log(`${req.method} ${req.path}`);
+  logger.info(`${req.method} ${req.path}`);
   next();
 });
 
-// Optional: Log all registered routes
-app._router.stack.forEach((r: any) => {
-  if (r.route && r.route.path) {
-    console.log(`Route registered: ${Object.keys(r.route.methods)} ${r.route.path}`);
-  }
-});
-
 // Start server
-const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+const port = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
+// Ensure server listens on all interfaces
 server.listen(port, '0.0.0.0', () => {
-  logger.info(`Server started on port ${port}`);
+  logger.info(`Server started on port ${port}`, { environment: process.env.NODE_ENV });
 });
 
 // Add types for request ID
