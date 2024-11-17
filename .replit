@@ -139,7 +139,7 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npx concurrently     -k     -p '[{name}]'     -n 'backend,frontend'     -c 'blue.bold,green.bold'     --handle-input     --restart-tries 3     'PORT=3001 NODE_ENV=development tsx watch --clear-screen=false --ignore \"**/vite.config.*\" server/index.ts'     'wait-on -d 5000 -t 30000 tcp:3001 && VITE_PORT=5173 npx vite --port 5173 --host 0.0.0.0'"
+args = "npx concurrently -k -p '[{name}]' -n 'backend,frontend' -c 'blue.bold,green.bold' --handle-input --restart-tries 3 'PORT=3001 NODE_ENV=development tsx watch --clear-screen=false --ignore \"**/vite.config.*\" server/index.ts' 'wait-on -d 5000 -t 30000 tcp:3001 && VITE_PORT=5173 VITE_API_URL=http://localhost:3001 npx vite --port 5173 --host 0.0.0.0'"
 waitForPort = 5173
 
 [[workflows.workflow]]
