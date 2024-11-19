@@ -8,7 +8,7 @@ channel = "stable-24_05"
 [deployment]
 deploymentTarget = "cloudrun"
 build = ["npm", "run", "build"]
-run = ["sh", "-c", "npx vite --host 0.0.0.0 --port 5173"]
+run = ["sh", "-c", "tsx server/index.ts"]
 
 [[ports]]
 localPort = 3000
@@ -63,7 +63,7 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "NODE_ENV=development nodemon --watch 'server/**/*.ts' --exec 'tsx' server/index.ts"
+args = "tsx server/index.ts"
 waitForPort = 3001
 
 [[workflows.workflow]]

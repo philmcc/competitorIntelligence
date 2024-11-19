@@ -15,7 +15,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
+import { Loader2, Star } from "lucide-react";
 import Layout from "@/components/Layout";
 
 interface ResearchRun {
@@ -24,6 +24,17 @@ interface ResearchRun {
   changesMade: boolean;
   changeDetails: string;
   currentText: string;
+}
+
+interface TrustpilotReview {
+  id: number;
+  reviewId: string;
+  rating: number;
+  title?: string;
+  content: string;
+  author: string;
+  publishedAt: string;
+  reviewUrl: string;
 }
 
 interface Competitor {
@@ -38,8 +49,10 @@ export default function CompetitorResearch() {
   const [, params] = useRoute("/admin/competitors/:competitorId/research");
   const [competitor, setCompetitor] = useState<Competitor | null>(null);
   const [researchRuns, setResearchRuns] = useState<ResearchRun[]>([]);
+  const [trustpilotReviews, setTrustpilotReviews] = useState<TrustpilotReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [runningResearch, setRunningResearch] = useState(false);
+  const [analyzingTrustpilot, setAnalyzingTrustpilot] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -59,6 +72,14 @@ export default function CompetitorResearch() {
         
         if (historyData.status === "success") {
           setResearchRuns(historyData.data);
+        }
+
+        // Fetch Trustpilot reviews
+        const reviewsResponse = await fetch(`/api/admin/competitors/${params?.competitorId}/trustpilot`);
+        const reviewsData = await reviewsResponse.json();
+        
+        if (reviewsData.status === "success") {
+          setTrustpilotReviews(reviewsData.data);
         }
       } catch (error) {
         console.error("Error fetching data:", error);
@@ -118,6 +139,39 @@ export default function CompetitorResearch() {
     }
   };
 
+  const analyzeTrustpilot = async () => {
+    if (!competitor) return;
+    
+    setAnalyzingTrustpilot(true);
+    try {
+      const response = await fetch(`/api/admin/competitors/${competitor.id}/trustpilot`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      const data = await response.json();
+      
+      if (data.status === "success") {
+        toast({
+          title: "Trustpilot Analysis Complete",
+          description: `Successfully analyzed ${data.data.reviews.length} reviews`,
+        });
+        
+        setTrustpilotReviews(data.data.reviews);
+      }
+    } catch (error) {
+      toast({
+        title: "Analysis Failed",
+        description: "Failed to analyze Trustpilot reviews",
+        variant: "destructive",
+      });
+    } finally {
+      setAnalyzingTrustpilot(false);
+    }
+  };
+
   if (loading) {
     return (
       <Layout>
@@ -167,26 +221,43 @@ export default function CompetitorResearch() {
                   Added: {new Date(competitor.createdAt).toLocaleDateString()}
                 </p>
               </div>
-              <Button 
-                onClick={runResearch}
-                disabled={runningResearch}
-              >
-                {runningResearch ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Running Research...
-                  </>
-                ) : (
-                  "Run Research"
-                )}
-              </Button>
+              <div className="space-x-4">
+                <Button 
+                  onClick={runResearch}
+                  disabled={runningResearch}
+                >
+                  {runningResearch ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Running Research...
+                    </>
+                  ) : (
+                    "Run Website Research"
+                  )}
+                </Button>
+                <Button 
+                  onClick={analyzeTrustpilot}
+                  disabled={analyzingTrustpilot}
+                  variant="outline"
+                >
+                  {analyzingTrustpilot ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Analyzing Trustpilot...
+                    </>
+                  ) : (
+                    "Analyze Trustpilot Reviews"
+                  )}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
 
+        {/* Website Research History */}
         <Card>
           <CardHeader>
-            <CardTitle>Research History</CardTitle>
+            <CardTitle>Website Research History</CardTitle>
             <CardDescription>
               Previous research runs and their results
             </CardDescription>
@@ -232,7 +303,63 @@ export default function CompetitorResearch() {
             )}
           </CardContent>
         </Card>
+
+        {/* Trustpilot Reviews */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Trustpilot Reviews</CardTitle>
+            <CardDescription>
+              Latest reviews and ratings from Trustpilot
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {trustpilotReviews.length === 0 ? (
+              <p className="text-center text-muted-foreground py-4">
+                No Trustpilot reviews found. Click "Analyze Trustpilot Reviews" to fetch the latest reviews.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                {trustpilotReviews.map((review) => (
+                  <Card key={review.reviewId}>
+                    <CardContent className="pt-6">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="flex items-center">
+                              {Array.from({ length: Math.floor(review.rating) }).map((_, i) => (
+                                <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                              ))}
+                            </div>
+                            <span className="text-sm font-medium">{review.rating.toFixed(1)}</span>
+                          </div>
+                          <span className="text-sm text-muted-foreground">
+                            {new Date(review.publishedAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        {review.title && (
+                          <h4 className="font-semibold">{review.title}</h4>
+                        )}
+                        <p className="text-sm">{review.content}</p>
+                        <div className="flex justify-between items-center text-sm text-muted-foreground">
+                          <span>By {review.author}</span>
+                          <a
+                            href={review.reviewUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-500 hover:underline"
+                          >
+                            View on Trustpilot
+                          </a>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </Layout>
   );
-} 
+}
