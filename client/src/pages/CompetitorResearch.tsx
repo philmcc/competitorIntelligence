@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import Layout from "@/components/Layout";
+import { ResearchHistory } from "@/components/ResearchHistory";
 
 interface ResearchRun {
   id: number;
@@ -40,6 +41,8 @@ export default function CompetitorResearch() {
   const [researchRuns, setResearchRuns] = useState<ResearchRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [runningResearch, setRunningResearch] = useState(false);
+  const [runningWebsiteResearch, setRunningWebsiteResearch] = useState(false);
+  const [runningTrustpilotResearch, setRunningTrustpilotResearch] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -118,6 +121,82 @@ export default function CompetitorResearch() {
     }
   };
 
+  const runWebsiteResearch = async () => {
+    if (!competitor) return;
+    
+    setRunningWebsiteResearch(true);
+    try {
+      const response = await fetch(`/api/admin/competitors/${competitor.id}/research`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ website: competitor.website }),
+      });
+
+      const data = await response.json();
+      
+      if (data.status === "success") {
+        toast({
+          title: "Research Complete",
+          description: data.data.changesMade ? 
+            `Changes detected: ${data.data.changeDetails}` : 
+            "No changes detected",
+        });
+        
+        // Refresh research history
+        const historyResponse = await fetch(`/api/admin/competitors/${competitor.id}/research-history`);
+        const historyData = await historyResponse.json();
+        if (historyData.status === "success") {
+          setResearchRuns(historyData.data);
+        }
+      }
+    } catch (error) {
+      toast({
+        title: "Research Failed",
+        description: "Failed to run research",
+        variant: "destructive",
+      });
+    } finally {
+      setRunningWebsiteResearch(false);
+    }
+  };
+
+  const runTrustpilotResearch = async () => {
+    if (!competitor) return;
+    
+    setRunningTrustpilotResearch(true);
+    try {
+      const response = await fetch(`/api/competitors/${competitor.id}/trustpilot`, {
+        method: "POST",
+      });
+
+      const data = await response.json();
+      
+      if (data.status === "success") {
+        toast({
+          title: "Trustpilot Analysis Complete",
+          description: "Trustpilot review analysis has been completed successfully.",
+        });
+        
+        // Refresh research history
+        const historyResponse = await fetch(`/api/competitors/${competitor.id}/research-history`);
+        const historyData = await historyResponse.json();
+        if (historyData.status === "success") {
+          setResearchRuns(historyData.data);
+        }
+      }
+    } catch (error) {
+      toast({
+        title: "Analysis Failed",
+        description: "Failed to analyze Trustpilot reviews",
+        variant: "destructive",
+      });
+    } finally {
+      setRunningTrustpilotResearch(false);
+    }
+  };
+
   if (loading) {
     return (
       <Layout>
@@ -167,19 +246,47 @@ export default function CompetitorResearch() {
                   Added: {new Date(competitor.createdAt).toLocaleDateString()}
                 </p>
               </div>
-              <Button 
-                onClick={runResearch}
-                disabled={runningResearch}
-              >
-                {runningResearch ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Running Research...
-                  </>
-                ) : (
-                  "Run Research"
-                )}
-              </Button>
+              <div className="flex space-x-4">
+                <Button 
+                  onClick={runResearch} 
+                  disabled={runningResearch}
+                >
+                  {runningResearch ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Running Research...
+                    </>
+                  ) : (
+                    "Run Research"
+                  )}
+                </Button>
+                <Button 
+                  onClick={runWebsiteResearch} 
+                  disabled={runningWebsiteResearch}
+                >
+                  {runningWebsiteResearch ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Running...
+                    </>
+                  ) : (
+                    "Run Website Research"
+                  )}
+                </Button>
+                <Button 
+                  onClick={runTrustpilotResearch} 
+                  disabled={runningTrustpilotResearch}
+                >
+                  {runningTrustpilotResearch ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    "Analyze Trustpilot Reviews"
+                  )}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -187,49 +294,9 @@ export default function CompetitorResearch() {
         <Card>
           <CardHeader>
             <CardTitle>Research History</CardTitle>
-            <CardDescription>
-              Previous research runs and their results
-            </CardDescription>
           </CardHeader>
           <CardContent>
-            {researchRuns.length === 0 ? (
-              <p className="text-center text-muted-foreground py-4">
-                No research runs found
-              </p>
-            ) : (
-              <Accordion type="single" collapsible className="w-full">
-                {researchRuns.map((run) => (
-                  <AccordionItem key={run.id} value={run.id.toString()}>
-                    <AccordionTrigger>
-                      <div className="flex items-center gap-4">
-                        <span>{new Date(run.runDate).toLocaleString()}</span>
-                        <span className={`text-sm ${run.changesMade ? 'text-green-500' : 'text-yellow-500'}`}>
-                          {run.changesMade ? 'Changes Detected' : 'No Changes'}
-                        </span>
-                      </div>
-                    </AccordionTrigger>
-                    <AccordionContent>
-                      <div className="space-y-4 p-4">
-                        {run.changesMade && (
-                          <div>
-                            <h4 className="font-medium mb-2">Changes Detected:</h4>
-                            <p className="whitespace-pre-wrap text-sm">
-                              {run.changeDetails}
-                            </p>
-                          </div>
-                        )}
-                        <div>
-                          <h4 className="font-medium mb-2">Website Content:</h4>
-                          <pre className="text-xs bg-muted p-4 rounded-md overflow-auto">
-                            {run.currentText}
-                          </pre>
-                        </div>
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                ))}
-              </Accordion>
-            )}
+            <ResearchHistory runs={researchRuns} />
           </CardContent>
         </Card>
       </div>

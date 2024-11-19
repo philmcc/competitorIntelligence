@@ -6,7 +6,7 @@ import AddCompetitorDialog from "../components/AddCompetitorDialog";
 import DiscoverCompetitorsDialog from "../components/DiscoverCompetitorsDialog";
 import ResearchModules from "../components/ResearchModules";
 import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
@@ -18,7 +18,7 @@ import { mutate } from "swr";
 export default function Dashboard() {
   const [, setLocation] = useLocation();
   const { user, isLoading: userLoading } = useUser();
-  const { competitors, meta, isLoading: competitorsLoading } = useCompetitors();
+  const { competitors, meta, isLoading: competitorsLoading, error } = useCompetitors();
   const { toast } = useToast();
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [isEditing, setIsEditing] = useState(false);
@@ -100,12 +100,44 @@ export default function Dashboard() {
     setWebsiteUrl(user?.websiteUrl || "");
   }, [user?.websiteUrl]);
 
+  // Add console logging for debugging
+  useEffect(() => {
+    if (error) {
+      console.error("Competitors fetch error:", error);
+    }
+    console.log("Competitors data:", competitors);
+  }, [competitors, error]);
+
+  useEffect(() => {
+    if (error) {
+      console.error("Dashboard competitors error:", error);
+    }
+  }, [error]);
+
   if (userLoading || competitorsLoading) {
     return (
       <Layout>
         <div className="flex items-center justify-center h-screen">
           <Loader2 className="h-8 w-8 animate-spin" />
         </div>
+      </Layout>
+    );
+  }
+
+  if (error) {
+    return (
+      <Layout>
+        <Alert variant="destructive">
+          <AlertTitle>Error Loading Competitors</AlertTitle>
+          <AlertDescription>
+            {error.message}
+            {error.details && (
+              <pre className="mt-2 text-sm">
+                {JSON.stringify(error.details, null, 2)}
+              </pre>
+            )}
+          </AlertDescription>
+        </Alert>
       </Layout>
     );
   }

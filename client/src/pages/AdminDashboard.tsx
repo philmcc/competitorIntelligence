@@ -20,6 +20,9 @@ import { useAdmin } from "@/hooks/use-admin";
 import AdminModules from "../components/AdminModules";
 import { StatsCard } from "../components/StatsCard";
 import { Switch } from "@/components/ui/switch";
+import TrustpilotAnalysis from "@/components/TrustpilotAnalysis";
+import WebsiteResearch from "@/components/WebsiteResearch";
+import { useCompetitors } from "@/hooks/use-competitors";
 
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
@@ -28,6 +31,9 @@ export default function AdminDashboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
   const [isTrackingEnabled, setIsTrackingEnabled] = useState(true);
+  const [selectedCompetitorId, setSelectedCompetitorId] = useState<number | null>(null);
+  const { competitors, isLoading: competitorsLoading } = useCompetitors();
+  const [selectedCompetitor, setSelectedCompetitor] = useState<any>(null);
 
   useEffect(() => {
     // Fetch website tracking status
@@ -44,6 +50,13 @@ export default function AdminDashboard() {
         console.error("Failed to fetch tracking status:", error);
       });
   }, []);
+
+  useEffect(() => {
+    if (selectedCompetitorId && competitors) {
+      const competitor = competitors.find(c => c.id === selectedCompetitorId);
+      setSelectedCompetitor(competitor || null);
+    }
+  }, [selectedCompetitorId, competitors]);
 
   const handleTrackingToggle = async (enabled: boolean) => {
     try {
@@ -71,6 +84,10 @@ export default function AdminDashboard() {
         variant: "destructive"
       });
     }
+  };
+
+  const handleCompetitorSelect = (competitorId: number) => {
+    setSelectedCompetitorId(competitorId);
   };
 
   if (isLoading) {
@@ -235,7 +252,22 @@ export default function AdminDashboard() {
           </TabsContent>
 
           <TabsContent value="modules">
-            <AdminModules />
+            {competitorsLoading ? (
+              <div>Loading...</div>
+            ) : selectedCompetitor ? (
+              <div className="grid gap-6">
+                <WebsiteResearch competitorId={selectedCompetitor.id} />
+                <TrustpilotAnalysis competitorId={selectedCompetitor.id} />
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="pt-6">
+                  <p className="text-center text-muted-foreground">
+                    Select a competitor to view research modules
+                  </p>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="settings">

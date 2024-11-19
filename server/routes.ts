@@ -1,7 +1,7 @@
 import { Express, Request, Response, NextFunction } from "express";
 import { setupAuth } from "./auth";
 import { db } from "db";
-import { competitors, reports, subscriptions, users, researchModules, userModules, websiteChanges, websiteResearchResults } from "db/schema";
+import { competitors, reports, subscriptions, users, researchModules, userModules, websiteChanges, websiteResearchResults, researchRuns } from "./db/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { createCustomer, createSubscription, cancelSubscription } from "./stripe";
 import Stripe from "stripe";
@@ -12,6 +12,12 @@ import { requireAdmin } from "./middleware/admin";
 import { moduleSchema, moduleUpdateSchema } from "./schemas";
 import { trackWebsiteChanges, trackAllCompetitors } from './utils/website-tracker';
 import { scheduleJob } from 'node-schedule';
+import { requireAuth } from "./middleware/auth";
+import { 
+  getTrustpilotUrl, 
+  analyzeTrustpilotReviews, 
+  handleTrustpilotAnalysis 
+} from './api/competitors/trustpilot';
 
 // Validation schemas
 const competitorSchema = z.object({
@@ -311,30 +317,44 @@ export function registerRoutes(app: Express) {
     }
   }));
 
-  app.get("/api/competitors", requireAuth, asyncHandler(async (req: Request, res: Response) => {
-    const userCompetitors = await db
-      .select()
-      .from(competitors)
-      .where(eq(competitors.userId, req.user!.id));
-    
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, req.user!.id));
+  app.get("/api/competitors", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      
+      console.log("GET /api/competitors request received");
+      console.log("User from request:", req.user);
+      console.log("User ID:", userId);
 
-    const limit = PLAN_LIMITS[user.plan as keyof typeof PLAN_LIMITS];
-    const selectedCount = userCompetitors.filter(c => c.isSelected).length;
-    
-    res.json({
-      status: "success",
-      data: userCompetitors,
-      meta: {
-        total: userCompetitors.length,
-        limit,
-        remaining: Math.max(0, limit - selectedCount)
+      if (!userId) {
+        console.log("No user ID found in request");
+        return res.status(401).json({
+          status: "error",
+          message: "Unauthorized - No user ID found"
+        });
       }
-    });
-  }));
+
+      // Make sure we're using the imported 'competitors' table
+      const userCompetitors = await db
+        .select()
+        .from(competitors)
+        .where(eq(competitors.userId, userId));
+
+      console.log("Competitors found:", userCompetitors);
+
+      return res.json({
+        status: "success",
+        data: userCompetitors
+      });
+
+    } catch (error) {
+      console.error("Error fetching competitors:", error);
+      return res.status(500).json({
+        status: "error",
+        message: "Failed to fetch competitors",
+        details: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
 
   app.post("/api/competitors", requireAuth, asyncHandler(async (req: Request, res: Response) => {
     const validation = competitorSchema.safeParse(req.body);
@@ -964,7 +984,7 @@ export function registerRoutes(app: Express) {
   });
 
   // Add this new route handler
-  app.get('/api/admin/competitors/:competitorId/research-history', requireAdmin, async (req, res) => {
+  app.get('/api/admin/competitors/:competitorId/research-history', requireAuth, async (req: Request, res: Response) => {
     try {
       const { competitorId } = req.params;
       
@@ -982,9 +1002,9 @@ export function registerRoutes(app: Express) {
       // Get research history
       const history = await db
         .select()
-        .from(websiteResearchResults)
-        .where(eq(websiteResearchResults.competitorId, parseInt(competitorId)))
-        .orderBy(desc(websiteResearchResults.runDate));
+        .from(researchRuns)
+        .where(eq(researchRuns.competitorId, parseInt(competitorId)))
+        .orderBy(desc(researchRuns.runDate));
 
       res.json({
         status: 'success',
@@ -1023,6 +1043,25 @@ export function registerRoutes(app: Express) {
       res.status(error instanceof APIError ? error.status : 500).json({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to fetch competitor'
+      });
+    }
+  });
+
+  app.post("/api/competitors/:competitorId/trustpilot", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { competitorId } = req.params;
+      
+      const result = await handleTrustpilotAnalysis(parseInt(competitorId));
+      
+      return res.json({
+        status: "success",
+        data: result
+      });
+    } catch (error) {
+      console.error("Trustpilot analysis error:", error);
+      return res.status(500).json({
+        status: "error",
+        message: error instanceof Error ? error.message : "Failed to analyze Trustpilot reviews"
       });
     }
   });
