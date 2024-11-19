@@ -48,8 +48,7 @@ export const competitors = pgTable("competitors", {
   customFields: jsonb("custom_fields").default({}).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   isSelected: boolean("is_selected").default(false).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  trustpilotUrl: text("trustpilot_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull()
 });
 
 export const websiteResearchResults = pgTable('website_research_results', {

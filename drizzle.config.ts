@@ -6,7 +6,8 @@ export default {
   schema: './server/db/schema.ts',
   out: './server/db/migrations',
   driver: 'pg',
+  dialect: 'pg',
   dbCredentials: {
-    connectionString: process.env.DATABASE_URL!,
+    connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/postgres',
   },
 } satisfies Config;

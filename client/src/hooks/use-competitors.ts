@@ -40,47 +40,93 @@ type ApiSuccess<T> = {
 type ApiResult<T> = ApiSuccess<T> | ApiError;
 
 export function useCompetitors() {
-  const { data, error, isLoading, mutate } = useSWR<CompetitorsResponse>(
-    "/api/competitors",
-    async (url) => {
-      try {
-        const response = await fetch(url);
-        console.log("Competitors API response status:", response.status);
-        
-        const data = await response.json();
-        console.log("Competitors API response data:", data);
+  const { data, error } = useSWR<ApiResponse<Competitor[]>>("/api/competitors");
 
-        if (!response.ok) {
-          throw new Error(data.message || `HTTP error! status: ${response.status}`);
-        }
-        
-        if (data.status !== "success") {
-          throw new Error(data.message || "Failed to fetch competitors");
-        }
-
-        return data;
-      } catch (error) {
-        console.error("Error in competitors fetch:", error);
-        throw error;
-      }
-    },
-    {
-      onErrorRetry: (error, key, config, revalidate, { retryCount }) => {
-        // Only retry up to 3 times
-        if (retryCount >= 3) return;
-        // Retry after 3 seconds
-        setTimeout(() => revalidate({ retryCount }), 3000);
-      },
+  const handleApiResponse = async <T>(response: Response): Promise<ApiResult<T>> => {
+    const result: ApiResponse<T> = await response.json();
+    
+    if (result.status === "error") {
+      return {
+        ok: false,
+        message: result.message || "An error occurred",
+        errors: result.errors
+      };
     }
-  );
+    
+    return { ok: true, data: result.data, meta: result.meta };
+  };
+
+  const addCompetitor = async (competitor: Omit<InsertCompetitor, "userId" | "isActive">) => {
+    try {
+      const response = await fetch("/api/competitors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(competitor),
+      });
+      
+      const result = await handleApiResponse<Competitor>(response);
+      if (result.ok) {
+        await mutate("/api/competitors");
+      }
+      return result;
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "An unexpected error occurred"
+      };
+    }
+  };
+
+  const updateCompetitor = async (id: number, competitor: Partial<InsertCompetitor>) => {
+    try {
+      const response = await fetch(`/api/competitors/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(competitor),
+      });
+      
+      const result = await handleApiResponse<Competitor>(response);
+      if (result.ok) {
+        await mutate("/api/competitors");
+      }
+      return result;
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "An unexpected error occurred"
+      };
+    }
+  };
+
+  const deleteCompetitor = async (id: number) => {
+    try {
+      const response = await fetch(`/api/competitors/${id}`, {
+        method: "DELETE",
+      });
+      
+      const result = await handleApiResponse<void>(response);
+      if (result.ok) {
+        await mutate("/api/competitors");
+      }
+      return result;
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "An unexpected error occurred"
+      };
+    }
+  };
 
   return {
     competitors: data?.data || [],
-    isLoading,
+    meta: data?.meta,
+    isLoading: !error && !data,
     error: error ? {
-      message: error instanceof Error ? error.message : "Failed to fetch competitors",
-      details: error
-    } : null,
-    mutate,
+      message: "Failed to fetch competitors",
+      cause: error
+    } : undefined,
+    addCompetitor,
+    updateCompetitor,
+    deleteCompetitor,
   };
 }
