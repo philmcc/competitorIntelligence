@@ -1,33 +1,18 @@
-entrypoint = "server/index.ts"
-modules = ["nodejs-20"]
-
-hidden = [".config", "package-lock.json"]
+modules = ["nodejs-20", "web"]
+run = "npm run dev"
+hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
 channel = "stable-24_05"
 
 [deployment]
-run = ["sh", "-c", "npm run dev"]
 deploymentTarget = "cloudrun"
+build = ["npm", "run", "build"]
+run = ["sh", "-c", "npx vite --host 0.0.0.0 --port 5173"]
 
-[interpreter]
-command = [
-    "prybar-nodejs",
-    "-q",
-    "--ps1",
-    "\u0001\u001b[33m\u0002\u0001\u001b[00m\u0002 ",
-    "-i"
-]
-
-[unitTest]
-language = "nodejs"
-
-[languages.javascript]
-pattern = "**/{*.js,*.jsx,*.ts,*.tsx}"
-syntax = "javascript"
-
-[languages.javascript.languageServer]
-start = [ "typescript-language-server", "--stdio" ]
+[[ports]]
+localPort = 3000
+externalPort = 3000
 
 [[ports]]
 localPort = 3001
@@ -37,13 +22,18 @@ externalPort = 80
 localPort = 5173
 externalPort = 5173
 
-[env]
-XDG_CONFIG_HOME = "/home/runner/.config"
-PATH = "/home/runner/$REPL_SLUG/.config/npm/node_global/bin:/home/runner/$REPL_SLUG/node_modules/.bin"
-npm_config_prefix = "/home/runner/$REPL_SLUG/.config/npm/node_global"
+[packager]
+language = "nodejs"
+  [packager.features]
+  packageSearch = true
+  guessImports = true
+  enabledForHosting = false
 
-[gitHubImport]
-requiredFiles = [".replit", "replit.nix", ".config"]
+[languages]
+  [languages.javascript]
+  pattern = "**/{*.js,*.jsx,*.ts,*.tsx}"
+    [languages.javascript.languageServer]
+    start = "typescript-language-server --stdio"
 
 [workflows]
 runButton = "Project"
@@ -55,18 +45,30 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Project"
+args = "Development Server"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Backend"
+args = "Backend Server"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Frontend Server"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "Frontend"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Development"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Backend"
+
 [[workflows.workflow]]
-name = "Project"
+name = "Development Server"
 author = "agent"
 
 [workflows.workflow.metadata]
@@ -77,11 +79,11 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run dev"
-waitForPort = 3001
+args = "npx vite --host 0.0.0.0 --port 5173"
+waitForPort = 5173
 
 [[workflows.workflow]]
-name = "Backend"
+name = "Backend Server"
 author = "agent"
 
 [workflows.workflow.metadata]
@@ -92,8 +94,23 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run backend"
+args = "PORT=3001 NODE_ENV=development tsx watch server/index.ts"
 waitForPort = 3001
+
+[[workflows.workflow]]
+name = "Frontend Server"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx vite --host 0.0.0.0 --port 5173"
+waitForPort = 5173
 
 [[workflows.workflow]]
 name = "Frontend"
@@ -107,5 +124,35 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run frontend"
+args = "npx vite --host 0.0.0.0 --port 5173"
 waitForPort = 5173
+
+[[workflows.workflow]]
+name = "Development"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx concurrently     -k     -p '[{name}]'     -n 'backend,frontend'     -c 'blue.bold,green.bold'     --handle-input     --restart-tries 3     'PORT=3001 NODE_ENV=development tsx watch --clear-screen=false --ignore \"**/vite.config.*\" server/index.ts'     'wait-on -d 5000 -t 30000 tcp:3001 && VITE_PORT=5173 npx vite --port 5173 --host 0.0.0.0'"
+waitForPort = 5173
+
+[[workflows.workflow]]
+name = "Backend"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=3001 NODE_ENV=development tsx watch --clear-screen=false server/index.ts"
+waitForPort = 3001
