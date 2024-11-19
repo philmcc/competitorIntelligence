@@ -4,13 +4,9 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "dev": "tsx watch --clear-screen=false --exclude vite.config.ts.* server/index.ts",
-    "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
-    "start": "NODE_ENV=production node dist/index.js",
-    "db:push": "drizzle-kit push",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit push:pg",
-    "drizzle-kit": "drizzle-kit"
+    "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
+    "backend": "tsx watch server/index.ts",
+    "frontend": "vite --port 5173 --host 0.0.0.0"
   },
   "dependencies": {
     "@heroicons/react": "^2.1.5",
@@ -58,7 +54,6 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
-    "concurrently": "^9.1.0",
     "cors": "^2.8.5",
     "date-fns": "^3.6.0",
     "diff": "^7.0.0",
@@ -70,6 +65,7 @@
     "express-async-handler": "^1.2.0",
     "express-session": "^1.18.1",
     "input-otp": "^1.2.4",
+    "knex": "^3.1.0",
     "lucide-react": "^0.453.0",
     "memorystore": "^1.6.7",
     "node-fetch": "^3.3.2",
@@ -91,8 +87,8 @@
     "tailwind-merge": "^2.5.4",
     "tailwindcss-animate": "^1.0.7",
     "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
     "vaul": "^1.1.0",
-    "wait-on": "^8.0.1",
     "wouter": "^3.3.5",
     "zod": "^3.23.8"
   },

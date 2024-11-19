@@ -8,127 +8,164 @@ import { logger } from "./utils/logger";
 import { setupAuth } from "./auth";
 
 const app = express();
+const server = createServer(app);
 
-// Enhanced CORS configuration for development and production
+// Graceful shutdown handler
+const gracefulShutdown = () => {
+  server.close(() => {
+    logger.info('Server closed gracefully');
+    process.exit(0);
+  });
+};
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
+// Get allowed origins from environment or use defaults
+const corsOriginsEnv = process.env.CORS_ALLOWED_ORIGINS?.split(',') || [];
+const defaultOrigins = [
+  'http://0.0.0.0:5173',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://0.0.0.0:3001',
+  'http://localhost:3001',
+  'http://127.0.0.1:3001',
+  /\.replit\.dev$/,
+  /\.preview\.app$/,
+  process.env.VITE_API_URL,
+  new RegExp(`${process.env.REPL_SLUG}\\..*\\.repl\\.co$`),
+  /.*\.repl\.co$/,
+  /^http:\/\/localhost:\d+$/,
+  /^http:\/\/127\.0\.0\.1:\d+$/,
+  /^http:\/\/0\.0\.0\.0:\d+$/
+];
+
+const allowedOrigins = [...new Set([...corsOriginsEnv, ...defaultOrigins.filter(Boolean)])];
+
+// CORS configuration with detailed logging
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? process.env.CLIENT_URL || 'https://your-production-url.com'
-    : ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://0.0.0.0:5173'],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) {
+      logger.info('Request with no origin allowed', { type: 'cors' });
+      return callback(null, true);
+    }
+
+    // In development, allow all origins
+    if (process.env.NODE_ENV === 'development') {
+      logger.info('Development mode: allowing all origins', { type: 'cors' });
+      return callback(null, true);
+    }
+
+    logger.info(`Checking origin: ${origin}`, { type: 'cors' });
+
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (typeof allowed === 'string') {
+        return allowed === origin;
+      }
+      if (allowed instanceof RegExp) {
+        return allowed.test(origin);
+      }
+      return false;
+    });
+
+    if (isAllowed) {
+      logger.info(`Origin ${origin} allowed by CORS`, { type: 'cors' });
+      return callback(null, true);
+    }
+
+    logger.warn(`Blocked request from unauthorized origin: ${origin}`, { type: 'cors' });
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-  exposedHeaders: ['Content-Type'],
-  maxAge: 86400 // 24 hours
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin'],
+  exposedHeaders: ['Content-Type', 'Authorization'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204,
+  maxAge: 86400
 }));
 
-// Body parsing middleware with enhanced configuration
-app.use(express.json({
-  limit: '10mb',
-  strict: true,
-  type: ['application/json', 'application/*+json']
-}));
+// Handle preflight requests
+app.options('*', cors());
 
-app.use(express.urlencoded({ extended: false }));
+// Body parsing middleware with increased limit
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Enhanced global JSON parsing error handler with detailed logging
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  if (err instanceof SyntaxError && 'body' in err) {
-    logger.error('JSON parsing error:', {
-      error: err.message,
-      path: req.path,
-      method: req.method,
-      contentType: req.get('content-type'),
-      body: req.body,
-      headers: req.headers,
-      ip: req.ip,
-      timestamp: new Date().toISOString()
-    });
-
-    res.setHeader('Content-Type', 'application/json');
-    return res.status(400).json({
-      status: "error",
-      message: "Invalid JSON payload",
-      errors: [{
-        type: "json_parse_error",
-        message: process.env.NODE_ENV === 'development' ? err.message : "Malformed JSON request"
-      }]
-    });
-  }
-  next(err);
-});
-
-// Set JSON content type for all API responses
-app.use('/api', (req: Request, res: Response, next: NextFunction) => {
-  res.setHeader('Content-Type', 'application/json');
-  next();
-});
-
-// Setup routes
+// Setup auth and routes before static files
 setupAuth(app);
 registerRoutes(app);
 
-const server = createServer(app);
-
-// Non-API routes should be handled by Vite/Static file server
-if (process.env.NODE_ENV !== 'production') {
-  setupVite(app, server).catch(error => {
-    logger.error('Failed to setup Vite middleware', error);
-    process.exit(1);
+// Error handling middleware
+app.use((err: Error | APIError, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error('Error occurred:', { 
+    type: 'error',
+    error: err instanceof Error ? err.message : String(err),
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
   });
-} else {
-  serveStatic(app);
-}
 
-// Enhanced error handling middleware - must be after all routes
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  logger.error('Unhandled error:', {
-    error: err.message,
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
-    timestamp: new Date().toISOString()
-  });
-  
-  // Set content type header
-  res.setHeader('Content-Type', 'application/json');
-
-  // Handle known error types
   if (err instanceof APIError) {
     return res.status(err.statusCode).json({
-      status: "error",
+      status: 'error',
       message: err.message,
       errors: err.errors
     });
   }
 
-  // Handle unknown errors
   res.status(500).json({
-    status: "error",
-    message: "Internal server error",
-    ...(process.env.NODE_ENV === 'development' && { 
-      stack: err.stack,
-      timestamp: new Date().toISOString()
-    })
+    status: 'error',
+    message: 'Internal server error'
   });
 });
 
-// Add this after setting up all routes
-app.use((req: Request, res: Response, next: NextFunction) => {
-  logger.info(`${req.method} ${req.path}`);
-  next();
-});
+// Server startup function with proper error handling
+async function startServer() {
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 3001;
+  const host = process.env.HOST || '0.0.0.0';
 
-// Start server
-const port = process.env.PORT ? parseInt(process.env.PORT) : 3001;
-
-// Ensure server listens on all interfaces
-server.listen(port, '0.0.0.0', () => {
-  logger.info(`Server started on port ${port}`, { environment: process.env.NODE_ENV });
-});
-
-// Add types for request ID
-declare global {
-  namespace Express {
-    interface Request {
-      requestId?: string;
+  try {
+    // In development, setup Vite
+    if (process.env.NODE_ENV !== 'production') {
+      await setupVite(app, server);
+    } else {
+      serveStatic(app);
     }
+
+    server.listen(port, host, () => {
+      logger.info(`Server started on port ${port}`, { 
+        type: 'startup',
+        environment: process.env.NODE_ENV,
+        url: `http://${host}:${port}`,
+        corsConfig: {
+          allowedOrigins: allowedOrigins.map(origin => 
+            origin instanceof RegExp ? origin.toString() : origin
+          )
+        }
+      });
+    });
+
+    server.on('error', (error: NodeJS.ErrnoException) => {
+      if (error.code === 'EADDRINUSE') {
+        logger.error('Port already in use', { type: 'startup_error', port });
+        process.exit(1);
+      }
+      logger.error('Server error:', { 
+        type: 'startup_error',
+        error: error.message,
+        code: error.code
+      });
+      throw error;
+    });
+
+  } catch (error) {
+    logger.error('Failed to start server:', { 
+      type: 'startup_error',
+      error: error instanceof Error ? error.message : String(error)
+    });
+    process.exit(1);
   }
 }
+
+// Start the server
+startServer();
