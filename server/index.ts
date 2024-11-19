@@ -10,10 +10,14 @@ import { setupAuth } from "./auth";
 const app = express();
 
 // Enhanced CORS configuration for development and production
+const corsOrigins = process.env.CORS_ALLOWED_ORIGINS?.split(',') || [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://0.0.0.0:5173'
+];
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? process.env.CLIENT_URL || 'https://your-production-url.com'
-    : ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://0.0.0.0:5173'],
+  origin: corsOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
@@ -110,18 +114,25 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
-// Add this after setting up all routes
+// Add logging middleware after all routes
 app.use((req: Request, res: Response, next: NextFunction) => {
-  logger.info(`${req.method} ${req.path}`);
+  logger.info(`${req.method} ${req.path}`, {
+    environment: process.env.NODE_ENV
+  });
   next();
 });
 
 // Start server
-const port = process.env.PORT ? parseInt(process.env.PORT) : 3001;
+const port = parseInt(process.env.PORT || '3000');
+const host = process.env.HOST || '0.0.0.0';
 
-// Ensure server listens on all interfaces
-server.listen(port, '0.0.0.0', () => {
-  logger.info(`Server started on port ${port}`, { environment: process.env.NODE_ENV });
+// Ensure server listens on all interfaces with explicit host binding
+server.listen(port, host, () => {
+  logger.info(`Server started on ${host}:${port}`, {
+    environment: process.env.NODE_ENV,
+    port: port,
+    host: host
+  });
 });
 
 // Add types for request ID
