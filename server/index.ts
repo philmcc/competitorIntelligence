@@ -124,7 +124,7 @@ server.listen(port, '0.0.0.0', () => {
   logger.info(`Server started on port ${port}`, { 
     environment: process.env.NODE_ENV,
     port: port,
-    url: `http://localhost:${port}`
+    url: `http://0.0.0.0:${port}`
   });
 });
 

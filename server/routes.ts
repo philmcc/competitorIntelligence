@@ -532,7 +532,12 @@ export function registerRoutes(app: Express) {
     const [competitor] = await db
       .select()
       .from(competitors)
-      .where(eq(competitors.id, competitorId));
+      .where(
+        and(
+          eq(competitors.id, competitorId),
+          eq(competitors.userId, req.user!.id)
+        )
+      );
 
     if (!competitor) {
       throw new APIError(404, "Competitor not found");
@@ -541,8 +546,285 @@ export function registerRoutes(app: Express) {
     try {
       const result = await analyzeTrustpilotReviews(competitorId, competitor.website);
       
-      if (result.success) {
-        // Update competitor with discovered Trustpilot URL if available
+      if (!result.success) {
+        throw new APIError(400, result.message || "Failed to analyze Trustpilot reviews");
+      }
+
+      // Store discovered Trustpilot URL in competitor's customFields if available
+      const customFields = {
+        ...(competitor.customFields || {}),
+        trustpilot_url: result.trustpilot_url || null
+      };
+      
+      await db.update(competitors)
+        .set({ customFields })
+        .where(eq(competitors.id, competitorId));
+
+      const reviews = await getStoredTrustpilotReviews(competitorId);
+
+      return res.json({
+        status: "success",
+        data: {
+          reviews: reviews || [],
+          trustpilot_url: customFields.trustpilot_url,
+          message: result.message
+        }
+      });
+    } catch (error) {
+      if (error instanceof APIError) {
+        throw error;
+      }
+      
+      logger.error('Error analyzing Trustpilot reviews:', {
+        error,
+        competitorId,
+        website: competitor.website
+      });
+      
+      throw new APIError(500, 
+        error instanceof Error 
+          ? error.message 
+          : "Failed to analyze Trustpilot reviews"
+      );
+    }
+  }));
+
+  app.get("/api/admin/competitors/:id/trustpilot", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const competitorId = parseInt(req.params.id);
+    
+    // Check if competitor exists and belongs to user
+    const [competitor] = await db
+      .select()
+      .from(competitors)
+      .where(
+        and(
+          eq(competitors.id, competitorId),
+          eq(competitors.userId, req.user!.id)
+        )
+      );
+
+    if (!competitor) {
+      throw new APIError(404, "Competitor not found");
+    }
+
+    try {
+      const reviews = await getStoredTrustpilotReviews(competitorId);
+      
+      return res.json({
+        status: "success",
+        data: {
+          reviews: reviews || [],
+          trustpilot_url: competitor.customFields?.trustpilot_url || null
+        }
+      });
+    } catch (error) {
+      logger.error('Error fetching Trustpilot reviews:', {
+        error,
+        competitorId
+      });
+      
+      throw new APIError(
+        500,
+        error instanceof Error 
+          ? error.message 
+          : "Failed to fetch Trustpilot reviews"
+      );
+    }
+  }));
+
+  app.get("/api/admin/competitors/:id/trustpilot", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const competitorId = parseInt(req.params.id);
+    
+    // Check if competitor exists and belongs to user
+    const [competitor] = await db
+      .select()
+      .from(competitors)
+      .where(eq(competitors.id, competitorId));
+
+    if (!competitor) {
+      throw new APIError(404, "Competitor not found");
+    }
+
+    try {
+      const reviews = await getStoredTrustpilotReviews(competitorId);
+      
+      res.json({
+        status: "success",
+        data: {
+          reviews: reviews || [],
+          trustpilot_url: competitor.customFields?.trustpilot_url || null
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching Trustpilot reviews:', error);
+      res.status(500).json({
+        status: "error",
+        message: error instanceof Error ? error.message : "Failed to fetch Trustpilot reviews"
+      });
+    }
+  }));
+        
+        res.json({
+          status: "success",
+          data: {
+            reviews: result.reviews || [],
+            trustpilot_url: result.trustpilot_url,
+            message: result.message
+          }
+        });
+      } else {
+        throw new APIError(400, result.message || "Failed to analyze Trustpilot reviews");
+      }
+    } catch (error) {
+      console.error('Error analyzing Trustpilot reviews:', error);
+      throw new APIError(500, error instanceof Error ? error.message : "Failed to analyze Trustpilot reviews");
+    }
+  }));
+
+  app.get("/api/admin/competitors/:id/trustpilot", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const competitorId = parseInt(req.params.id);
+    
+    // Check if competitor exists and belongs to user
+    const [competitor] = await db
+      .select()
+      .from(competitors)
+      .where(eq(competitors.id, competitorId));
+
+    if (!competitor) {
+      throw new APIError(404, "Competitor not found");
+    }
+
+    try {
+      const reviews = await getStoredTrustpilotReviews(competitorId);
+      
+      res.json({
+        status: "success",
+        data: {
+          reviews: reviews || [],
+          trustpilot_url: competitor.customFields?.trustpilot_url
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching Trustpilot reviews:', error);
+      throw new APIError(500, error instanceof Error ? error.message : "Failed to fetch Trustpilot reviews");
+    }
+  }));
+        res.json({
+          status: "success",
+          data: {
+            reviews: result.reviews || [],
+            trustpilot_url: result.trustpilot_url,
+            message: result.message
+          }
+        });
+      } else {
+        throw new APIError(400, result.message || "Failed to analyze Trustpilot reviews");
+      }
+    } catch (error) {
+      console.error('Error analyzing Trustpilot reviews:', error);
+      throw new APIError(500, error instanceof Error ? error.message : "Failed to analyze Trustpilot reviews");
+    }
+  }));
+
+  app.get("/api/admin/competitors/:id/trustpilot", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const competitorId = parseInt(req.params.id);
+    
+    // Check if competitor exists and belongs to user
+    const [competitor] = await db
+      .select()
+      .from(competitors)
+      .where(eq(competitors.id, competitorId));
+
+    if (!competitor) {
+      throw new APIError(404, "Competitor not found");
+    }
+
+    try {
+      const reviews = await getStoredTrustpilotReviews(competitorId);
+      
+      res.json({
+        status: "success",
+        data: {
+          reviews: reviews || [],
+          trustpilot_url: competitor.customFields?.trustpilot_url
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching Trustpilot reviews:', error);
+      throw new APIError(500, error instanceof Error ? error.message : "Failed to fetch Trustpilot reviews");
+    }
+  }));
+        // Store discovered Trustpilot URL in competitor's customFields if available
+        if (result.trustpilot_url) {
+          const customFields = {
+            ...(competitor.customFields || {}),
+            trustpilot_url: result.trustpilot_url
+          };
+          
+          await db.update(competitors)
+            .set({ customFields })
+            .where(eq(competitors.id, competitorId));
+        }
+        
+        res.json({
+          status: "success",
+          data: {
+            reviews: result.reviews || [],
+            trustpilot_url: result.trustpilot_url,
+            message: result.message
+          }
+        });
+      } else {
+        res.status(400).json({
+          status: "error",
+          message: result.message || "Failed to analyze Trustpilot reviews"
+        });
+      }
+    } catch (error) {
+      console.error('Error analyzing Trustpilot reviews:', error);
+      res.status(500).json({
+        status: "error",
+        message: "Failed to analyze Trustpilot reviews",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  }));
+
+  app.get("/api/admin/competitors/:id/trustpilot", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const competitorId = parseInt(req.params.id);
+    
+    // Check if competitor exists and belongs to user
+    const [competitor] = await db
+      .select()
+      .from(competitors)
+      .where(eq(competitors.id, competitorId));
+
+    if (!competitor) {
+      throw new APIError(404, "Competitor not found");
+    }
+
+    try {
+      const reviews = await getStoredTrustpilotReviews(competitorId);
+      if (!Array.isArray(reviews)) {
+        throw new Error("Invalid reviews format");
+      }
+      
+      res.json({
+        status: "success",
+        data: {
+          reviews,
+          trustpilot_url: competitor.customFields?.trustpilot_url
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching Trustpilot reviews:', error);
+      res.status(500).json({
+        status: "error",
+        message: "Failed to fetch Trustpilot reviews",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  }));
         if (result.trustpilot_url) {
           await db.update(competitors)
             .set({ customFields: { ...competitor.customFields, trustpilot_url: result.trustpilot_url } })

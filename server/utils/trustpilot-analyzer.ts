@@ -8,11 +8,12 @@ import { sql, desc } from 'drizzle-orm';
 export interface TrustpilotReviewData {
   reviewId: string;
   rating: number;
-  title?: string;
+  title: string | null;
   content: string;
   author: string;
   publishedAt: Date;
   reviewUrl: string;
+  trustpilot_url?: string;
 }
 
 import { logger } from './logger';
@@ -230,7 +231,7 @@ export async function analyzeTrustpilotReviews(competitorId: number, websiteUrl:
         const review: TrustpilotReviewData = {
           reviewId,
           rating,
-          title: titleElement?.textContent?.trim(),
+          title: titleElement?.textContent?.trim() || null,
           content: contentElement.textContent.trim(),
           author: authorElement.textContent.trim(),
           publishedAt: dateElement?.getAttribute('datetime') 
@@ -286,10 +287,42 @@ export async function analyzeTrustpilotReviews(competitorId: number, websiteUrl:
   }
 }
 
-export async function getStoredTrustpilotReviews(competitorId: number) {
-  return await db
-    .select()
-    .from(trustpilotReviews)
-    .where(eq(trustpilotReviews.competitorId, competitorId))
-    .orderBy(desc(trustpilotReviews.publishedAt));
+export async function getStoredTrustpilotReviews(competitorId: number): Promise<TrustpilotReviewData[]> {
+  try {
+    const reviews = await db
+      .select({
+        reviewId: trustpilotReviews.reviewId,
+        rating: trustpilotReviews.rating,
+        title: trustpilotReviews.title,
+        content: trustpilotReviews.content,
+        author: trustpilotReviews.author,
+        publishedAt: trustpilotReviews.publishedAt,
+        reviewUrl: trustpilotReviews.reviewUrl,
+      })
+      .from(trustpilotReviews)
+      .where(eq(trustpilotReviews.competitorId, competitorId))
+      .orderBy(desc(trustpilotReviews.publishedAt));
+    
+    if (!Array.isArray(reviews)) {
+      logger.error('Reviews is not an array:', { competitorId, reviews });
+      return [];
+    }
+
+    return reviews.map(review => ({
+      reviewId: review.reviewId,
+      rating: review.rating,
+      title: review.title || null,
+      content: review.content,
+      author: review.author,
+      publishedAt: new Date(review.publishedAt),
+      reviewUrl: review.reviewUrl
+    }));
+  } catch (error) {
+    logger.error('Error fetching stored Trustpilot reviews:', {
+      error,
+      competitorId,
+      context: 'getStoredTrustpilotReviews'
+    });
+    return [];
+  }
 }
