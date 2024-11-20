@@ -525,6 +525,59 @@ export function registerRoutes(app: Express) {
   }));
 
   // Trustpilot endpoints
+  app.post("/api/admin/competitors/:id/trustpilot", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const competitorId = parseInt(req.params.id);
+    
+    // Check if competitor exists and belongs to user
+    const [competitor] = await db
+      .select()
+      .from(competitors)
+      .where(eq(competitors.id, competitorId));
+
+    if (!competitor) {
+      throw new APIError(404, "Competitor not found");
+    }
+
+    try {
+      const result = await analyzeTrustpilotReviews(competitorId, competitor.website);
+      
+      if (result.success) {
+        // Update competitor with discovered Trustpilot URL if available
+        if (result.trustpilot_url) {
+          await db.update(competitors)
+            .set({ customFields: { ...competitor.customFields, trustpilot_url: result.trustpilot_url } })
+            .where(eq(competitors.id, competitorId));
+        }
+
+        res.json({
+          status: "success",
+          data: {
+            reviews: result.reviews || [],
+            trustpilot_url: result.trustpilot_url,
+            message: result.message
+          }
+        });
+      } else {
+        res.status(400).json({
+          status: "error",
+          message: result.message || "Failed to analyze Trustpilot reviews",
+          error: result.error
+        });
+      }
+    } catch (error) {
+      logger.error('Error in Trustpilot analysis endpoint', {
+        error,
+        competitorId,
+        website: competitor.website
+      });
+      res.status(500).json({
+        status: "error",
+        message: "Internal server error processing Trustpilot reviews",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  }));
+
   app.get("/api/admin/competitors/:id/trustpilot", requireAuth, asyncHandler(async (req: Request, res: Response) => {
     const competitorId = parseInt(req.params.id);
     
@@ -543,7 +596,10 @@ export function registerRoutes(app: Express) {
       
       res.json({
         status: "success",
-        data: reviews
+        data: {
+          reviews,
+          trustpilot_url: competitor.customFields?.trustpilot_url
+        }
       });
     } catch (error) {
       console.error('Error fetching Trustpilot reviews:', error);

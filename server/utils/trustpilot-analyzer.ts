@@ -38,7 +38,46 @@ export async function extractTrustpilotUrl(websiteUrl: string): Promise<string |
       return null;
     }
 
-    logger.info('Attempting to extract Trustpilot URL', { 
+    // First try Make.com webhook
+    const webhookUrl = process.env.MAKE_TRUSTPILOT_WEBHOOK_URL || 'https://hook.eu2.make.com/des6gfa096l3fximks5myjt92d7f8fl3';
+    
+    logger.info('Attempting to discover Trustpilot URL via Make.com webhook', { 
+      websiteUrl,
+      context: 'extractTrustpilotUrl'
+    });
+
+    try {
+      const webhookResponse = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ website_url: websiteUrl })
+      });
+
+      if (webhookResponse.ok) {
+        const data = await webhookResponse.json();
+        if (data?.trustpilot_url) {
+          logger.info('Successfully discovered Trustpilot URL via webhook', {
+            trustpilot_url: data.trustpilot_url,
+            context: 'extractTrustpilotUrl'
+          });
+          return data.trustpilot_url;
+        }
+      } else {
+        logger.warn('Make.com webhook request failed', {
+          status: webhookResponse.status,
+          statusText: webhookResponse.statusText,
+          context: 'extractTrustpilotUrl'
+        });
+      }
+    } catch (webhookError) {
+      logger.error('Error calling Make.com webhook', {
+        error: webhookError,
+        context: 'extractTrustpilotUrl'
+      });
+    }
+
+    // Fallback: Try to find Trustpilot URL from website content
+    logger.info('Attempting to extract Trustpilot URL from website content', { 
       websiteUrl,
       context: 'extractTrustpilotUrl'
     });
