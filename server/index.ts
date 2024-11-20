@@ -121,7 +121,11 @@ const port = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
 // Ensure server listens on all interfaces
 server.listen(port, '0.0.0.0', () => {
-  logger.info(`Server started on port ${port}`, { environment: process.env.NODE_ENV });
+  logger.info(`Server started on port ${port}`, { 
+    environment: process.env.NODE_ENV,
+    port: port,
+    url: `http://localhost:${port}`
+  });
 });
 
 // Add types for request ID

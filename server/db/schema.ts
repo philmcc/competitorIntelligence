@@ -20,6 +20,21 @@ export const competitors = pgTable('competitors', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+export const trustpilotReviews = pgTable('trustpilot_reviews', {
+  id: serial('id').primaryKey(),
+  competitorId: integer('competitor_id')
+    .notNull()
+    .references(() => competitors.id, { onDelete: 'cascade' }),
+  reviewId: text('review_id').notNull(),
+  rating: integer('rating').notNull(),
+  title: text('title'),
+  content: text('content').notNull(),
+  author: text('author').notNull(),
+  publishedAt: timestamp('published_at').notNull(),
+  reviewUrl: text('review_url').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+});
+
 export const websiteResearchResults = pgTable('website_research_results', {
   id: serial('id').primaryKey(),
   competitorId: integer('competitor_id')

@@ -11,6 +11,7 @@ import { APIError } from "./errors";
 import { requireAdmin } from "./middleware/admin";
 import { moduleSchema, moduleUpdateSchema } from "./schemas";
 import { trackWebsiteChanges, trackAllCompetitors } from './utils/website-tracker';
+import { analyzeTrustpilotReviews, getStoredTrustpilotReviews } from './utils/trustpilot-analyzer';
 import { scheduleJob } from 'node-schedule';
 
 // Validation schemas
@@ -523,6 +524,69 @@ export function registerRoutes(app: Express) {
     }
   }));
 
+  // Trustpilot endpoints
+  app.get("/api/admin/competitors/:id/trustpilot", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const competitorId = parseInt(req.params.id);
+    
+    // Check if competitor exists and belongs to user
+    const [competitor] = await db
+      .select()
+      .from(competitors)
+      .where(eq(competitors.id, competitorId));
+
+    if (!competitor) {
+      throw new APIError(404, "Competitor not found");
+    }
+
+    try {
+      const reviews = await getStoredTrustpilotReviews(competitorId);
+      
+      res.json({
+        status: "success",
+        data: reviews
+      });
+    } catch (error) {
+      console.error('Error fetching Trustpilot reviews:', error);
+      throw new APIError(500, "Failed to fetch Trustpilot reviews");
+    }
+  }));
+
+  app.post("/api/admin/competitors/:id/trustpilot", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const competitorId = parseInt(req.params.id);
+    
+    // Check if competitor exists and belongs to user
+    const [competitor] = await db
+      .select()
+      .from(competitors)
+      .where(eq(competitors.id, competitorId));
+
+    if (!competitor) {
+      throw new APIError(404, "Competitor not found");
+    }
+
+    try {
+      const result = await analyzeTrustpilotReviews(competitorId, competitor.website);
+      
+      if (!result.success) {
+        throw new APIError(400, result.message || "Failed to analyze Trustpilot reviews");
+      }
+
+      res.json({
+        status: "success",
+        data: {
+          reviews: result.reviews,
+          message: `Successfully analyzed ${result.reviews?.length || 0} reviews`
+        }
+      });
+    } catch (error) {
+      console.error('Error analyzing Trustpilot reviews:', error);
+      if (error instanceof APIError) {
+        throw error;
+      }
+      throw new APIError(500, "Failed to analyze Trustpilot reviews");
+    }
+  }));
+
   app.put("/api/admin/modules/:id", requireAuth, requireAdmin, asyncHandler(async (req: Request, res: Response) => {
     const validation = moduleUpdateSchema.safeParse(req.body);
     
@@ -1023,6 +1087,59 @@ export function registerRoutes(app: Express) {
       res.status(error instanceof APIError ? error.status : 500).json({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to fetch competitor'
+      });
+    }
+  });
+
+  app.post('/api/admin/competitors/:competitorId/trustpilot', requireAdmin, async (req, res) => {
+    try {
+      const { competitorId } = req.params;
+      
+      // Validate competitorId is a number
+      const id = parseInt(competitorId);
+      if (isNaN(id)) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Invalid competitor ID'
+        });
+      }
+
+      // Get competitor details
+      const competitor = await db
+        .select()
+        .from(competitors)
+        .where(eq(competitors.id, id))
+        .limit(1)
+        .then(rows => rows[0]);
+
+      if (!competitor) {
+        return res.status(404).json({
+          status: 'error',
+          message: 'Competitor not found'
+        });
+      }
+
+      // Call your Trustpilot analyzer
+      const result = await analyzeTrustpilotReviews(id, competitor.website);
+
+      if (!result.success) {
+        return res.status(400).json({
+          status: 'error',
+          message: result.message || 'Failed to analyze Trustpilot reviews'
+        });
+      }
+
+      res.json({
+        status: 'success',
+        data: {
+          reviews: result.reviews
+        }
+      });
+    } catch (error) {
+      console.error('Error analyzing Trustpilot reviews:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Internal server error while analyzing Trustpilot reviews'
       });
     }
   });

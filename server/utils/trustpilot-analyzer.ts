@@ -1,4 +1,4 @@
-import { db } from '../db';
+import { db } from '../../db';
 import { competitors, trustpilotReviews } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import fetch from 'node-fetch';

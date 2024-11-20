@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "cleanup": "bash scripts/cleanup.sh",
-    "dev": "npm run cleanup && concurrently --kill-others-on-fail \"PORT=3001 NODE_ENV=development tsx watch server/index.ts\" \"vite --host 0.0.0.0 --port 5173\"",
+    "dev": "npm run cleanup && concurrently --kill-others-on-fail \"PORT=3000 NODE_ENV=development tsx watch server/index.ts\" \"vite --host 0.0.0.0 --port 5173\"",
     "build": "vite build"
   },
   "dependencies": {
