@@ -3,7 +3,7 @@ import { competitors, trustpilotReviews } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import fetch from 'node-fetch';
 import { JSDOM } from 'jsdom';
-import { sql } from 'drizzle-orm';
+import { sql, desc } from 'drizzle-orm';
 
 export interface TrustpilotReviewData {
   reviewId: string;
